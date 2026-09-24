@@ -175,3 +175,24 @@
     }
   }
 }
+
+@layer base {
+  html,
+  body {
+    min-height: 100%;
+    direction: rtl;
+    background: #fffbf5;
+    font-family: "Tajawal", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    margin: 0;
+  }
+
+  button,
+  input,
+  textarea {
+    font: inherit;
+  }
+}
