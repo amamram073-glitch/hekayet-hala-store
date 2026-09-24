@@ -417,7 +417,6 @@ export default function App() {
             <div className="absolute inset-0 tatreez opacity-[0.12]" />
             <div className="relative z-10 h-full flex flex-col items-center justify-center text-center px-4 pt-16">
               <div className="px-3 py-1 rounded-full bg-white/10 border border-white/15 text-[#C9A86A] text-[11px] font-bold backdrop-blur">حلويات فلسطينية • كتالوج المنتجات</div>
-              <h1 className="mt-4 text-[32px] sm:text-[44px] font-black text-white leading-[1.1]" style={{ fontFamily: "'Amiri', serif" }}>حكايات من فلسطين<br/><span className="text-[#C9A86A]">تُحكى بالحلا</span></h1>
               <button onClick={()=>document.getElementById('products')?.scrollIntoView({behavior:'smooth'})} className="absolute bottom-10 sm:bottom-12 left-1/2 -translate-x-1/2 px-7 h-[48px] rounded-full bg-[#FFFBF5] text-[#1A0A05] font-bold text-[13px] shadow-[0_10px_30px_rgba(0,0,0,0.25)] transition-transform hover:scale-[1.03] active:scale-[0.97]">استكشف الأصناف</button>
             </div>
           </section>
