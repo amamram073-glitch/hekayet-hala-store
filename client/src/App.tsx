@@ -15,7 +15,6 @@ const imgPetitfour = "/manus-storage/petitfour_35f57354.jpeg";
 const imgMaqruta = "/manus-storage/maqrouta_061f8551.jpeg";
 const imgMabshoura = "/manus-storage/mabshoura_04f58b59.jpeg";
 const imgSinabon2 = "/manus-storage/sinabon2_167424f4.jpeg";
-const logo = "/manus-storage/logo_ab9a8f03.png";
 
 type Screen = "login" | "main" | "admin";
 type OrderMethod = "whatsapp" | "internal";
@@ -386,37 +385,37 @@ export default function App() {
 
       {/* MAIN SCREEN */}
       {screen === "main" && (
-        <div className="min-h-screen">
+        <div className="relative min-h-screen">
           {/* Header */}
-          <header className="sticky top-0 z-30 backdrop-blur-[16px] bg-[#FFFBF5]/80 border-b border-[#C9A86A]/10">
+          <header className="absolute inset-x-0 top-0 z-30 text-white">
             <div className="mx-auto max-w-[1280px] px-4 h-[64px] flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <img src={logo} alt="شعار حكاية حلا" className="w-10 h-10 rounded-full object-cover border border-[#C9A86A]/30" />
+                <div className="w-10 h-10 rounded-full bg-[#1A0A05]/45 backdrop-blur border border-[#C9A86A]/50 text-[#C9A86A] grid place-items-center font-black text-[19px]">ح</div>
                 <div>
-                  <div className="font-black text-[15px] leading-none">حكاية حلا</div>
-                  <div className="text-[10px] text-[#5E1C1C]/50 font-bold tracking-widest">HEKAYET HALA</div>
+                  <div className="font-black text-[15px] leading-none text-white">حكاية حلا</div>
+                  <div className="text-[10px] text-white/65 font-bold tracking-widest">HEKAYET HALA</div>
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                {!defaultWhatsappNumber && <span className="px-3 py-1.5 rounded-full bg-[#C9A86A]/15 text-[#5E1C1C] text-[11px] font-bold">كتالوج المنتجات</span>}
-                {isAdmin && <button onClick={()=>setScreen("admin")} className="relative px-3 py-1.5 rounded-full bg-white border border-[#C9A86A]/20 text-[12px] font-bold">إدارة الطلبات {orders.length>0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#C1272D] text-white text-[9px] rounded-full grid place-items-center">{orders.length}</span>}</button>}
+                {!defaultWhatsappNumber && <span className="px-3 py-1.5 rounded-full bg-[#1A0A05]/45 backdrop-blur border border-white/20 text-white text-[11px] font-bold">كتالوج المنتجات</span>}
+                {isAdmin && <button onClick={()=>setScreen("admin")} className="relative px-3 py-1.5 rounded-full bg-[#1A0A05]/45 backdrop-blur border border-white/20 text-white text-[12px] font-bold">إدارة الطلبات {orders.length>0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#C1272D] text-white text-[9px] rounded-full grid place-items-center">{orders.length}</span>}</button>}
                 {defaultWhatsappNumber && <div className="relative">
-                  <button onClick={()=>toast(`السلة: ${cartCount} منتجات - ${cartTotal} د.إ`)} className="px-3 py-1.5 rounded-full bg-[#1A0A05] text-white text-[12px] font-bold">السلة • {cartCount}</button>
+                  <button onClick={()=>toast(`السلة: ${cartCount} منتجات - ${cartTotal} د.إ`)} className="px-3 py-1.5 rounded-full bg-[#1A0A05]/55 backdrop-blur border border-white/20 text-white text-[12px] font-bold">السلة • {cartCount}</button>
                 </div>}
                 {user && <div className="flex items-center gap-2">
                   <span className="hidden sm:block text-[12px] font-medium max-w-[100px] truncate">{user?.displayName || user?.email}</span>
-                  <button onClick={handleLogout} className="w-8 h-8 rounded-full bg-white border border-black/10 grid place-items-center text-[12px]">⎋</button>
+                  <button onClick={handleLogout} className="w-8 h-8 rounded-full bg-[#1A0A05]/45 border border-white/20 grid place-items-center text-[12px]">⎋</button>
                 </div>}
               </div>
             </div>
           </header>
 
           {/* Hero */}
-          <section className="relative h-[52vh] min-h-[360px] overflow-hidden">
-            <img src={heroBg} alt="hero" className="absolute inset-0 w-full h-full object-cover" />
-            <div className="absolute inset-0 bg-[#1A0A05]/70" />
-            <div className="absolute inset-0 tatreez opacity-20" />
-            <div className="relative z-10 h-full flex flex-col items-center justify-center text-center px-4">
+          <section className="relative h-[100svh] min-h-[620px] overflow-hidden">
+            <img src={heroBg} alt="حلويات حكاية حلا الفلسطينية" className="absolute inset-0 w-full h-full object-cover scale-[1.02]" style={{ objectPosition: "center 48%" }} />
+            <div className="absolute inset-0 bg-gradient-to-b from-[#1A0A05]/45 via-[#1A0A05]/28 to-[#1A0A05]/45" />
+            <div className="absolute inset-0 tatreez opacity-[0.12]" />
+            <div className="relative z-10 h-full flex flex-col items-center justify-center text-center px-4 pt-16">
               <div className="px-3 py-1 rounded-full bg-white/10 border border-white/15 text-[#C9A86A] text-[11px] font-bold backdrop-blur">حلويات فلسطينية • كتالوج المنتجات</div>
               <h1 className="mt-4 text-[32px] sm:text-[44px] font-black text-white leading-[1.1]" style={{ fontFamily: "'Amiri', serif" }}>حكايات من فلسطين<br/><span className="text-[#C9A86A]">تُحكى بالحلا</span></h1>
               <p className="mt-3 max-w-[520px] text-[13px] leading-6 text-white/60">تعرّف على مختارات حكاية حلا من الحلويات الفلسطينية. اطّلع على الأصناف والأسعار، وسيُعلن عن استقبال الطلبات عند تفعيل قناة التواصل مع المتجر.</p>
