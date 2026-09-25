@@ -40,6 +40,15 @@ const products: Product[] = [
   { id: 9, name: "مبشوره", price: 16, image: imgMabshoura, desc: "مبشورة هشة بطبقات تفاح وقرفة.", tag: "مخبوز" },
 ];
 
+const productCategories = ["الكل", "بارد", "تراثي", "مخبوز", "تمر"] as const;
+type PriceFilter = "all" | "up-to-16" | "17-to-18" | "19-plus";
+const priceFilters: { id: PriceFilter; label: string }[] = [
+  { id: "all", label: "كل الأسعار" },
+  { id: "up-to-16", label: "حتى 16 د.إ" },
+  { id: "17-to-18", label: "17–18 د.إ" },
+  { id: "19-plus", label: "19 د.إ فأكثر" },
+];
+
 const collections = [
   { id: 1, title: "حلويات باردة فلسطينية", count: "صنفان", image: imgLayaliLeb, accent: "#C9A86A" },
   { id: 2, title: "مخبوزات بالتمر الملوكي", count: "3 أصناف", image: imgKaak, accent: "#2D4A22" },
@@ -52,6 +61,8 @@ export default function App() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<(typeof productCategories)[number]>("الكل");
+  const [selectedPriceFilter, setSelectedPriceFilter] = useState<PriceFilter>("all");
   const [cart, setCart] = useState<{id:number, q:number}[]>(() => {
     const saved = localStorage.getItem("hekaya_cart_v3");
     return saved ? JSON.parse(saved) : [];
@@ -200,6 +211,15 @@ export default function App() {
   }, 0);
 
   const cartCount = cart.reduce((s,c)=>s+c.q,0);
+
+  const filteredProducts = products.filter((product) => {
+    const matchesCategory = selectedCategory === "الكل" || product.tag === selectedCategory;
+    const matchesPrice = selectedPriceFilter === "all"
+      || (selectedPriceFilter === "up-to-16" && product.price <= 16)
+      || (selectedPriceFilter === "17-to-18" && product.price >= 17 && product.price <= 18)
+      || (selectedPriceFilter === "19-plus" && product.price >= 19);
+    return matchesCategory && matchesPrice;
+  });
 
   const toast = (msg: string) => {
     setShowToast(msg);
@@ -443,10 +463,33 @@ export default function App() {
           <section id="products" className="mx-auto max-w-[1280px] px-4 pb-10">
             <div className="flex items-center justify-between">
               <h2 className="text-[18px] font-black">حلوياتنا الفلسطينية الأصيلة</h2>
-              <span className="text-[11px] text-[#5E1C1C]/50">9 أصناف • الطلب قريباً</span>
+              <span className="text-[11px] text-[#5E1C1C]/60">{filteredProducts.length} من {products.length} أصناف • الطلب قريباً</span>
+            </div>
+            <div className="mt-4 rounded-[18px] border border-[#C9A86A]/20 bg-white/80 p-3 sm:p-4 shadow-[0_6px_20px_rgba(26,10,5,0.04)]">
+              <div className="flex flex-col gap-3 sm:gap-2.5">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
+                  <span className="shrink-0 text-[11px] font-black text-[#5E1C1C]">النوع</span>
+                  <div className="flex flex-wrap gap-2" role="group" aria-label="تصفية حسب نوع الحلوى">
+                    {productCategories.map((category) => {
+                      const active = selectedCategory === category;
+                      return <button key={category} type="button" aria-pressed={active} onClick={() => setSelectedCategory(category)} className={`min-h-[34px] rounded-full px-3.5 text-[11px] font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A86A] ${active ? "bg-[#5E1C1C] text-white shadow-[0_4px_12px_rgba(94,28,28,0.18)]" : "border border-[#5E1C1C]/10 bg-[#FFFBF5] text-[#5E1C1C]/75 hover:border-[#C9A86A]/60 hover:bg-[#C9A86A]/10"}`}>{category}</button>;
+                    })}
+                  </div>
+                </div>
+                <div className="h-px bg-[#5E1C1C]/[0.06]" />
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
+                  <span className="shrink-0 text-[11px] font-black text-[#5E1C1C]">السعر</span>
+                  <div className="flex flex-wrap gap-2" role="group" aria-label="تصفية حسب السعر">
+                    {priceFilters.map((filter) => {
+                      const active = selectedPriceFilter === filter.id;
+                      return <button key={filter.id} type="button" aria-pressed={active} onClick={() => setSelectedPriceFilter(filter.id)} className={`min-h-[34px] rounded-full px-3.5 text-[11px] font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A86A] ${active ? "bg-[#C9A86A] text-[#1A0A05] shadow-[0_4px_12px_rgba(201,168,106,0.2)]" : "border border-[#C9A86A]/25 bg-[#FFFBF5] text-[#5E1C1C]/75 hover:border-[#C9A86A]/70 hover:bg-[#C9A86A]/10"}`}>{filter.label}</button>;
+                    })}
+                  </div>
+                </div>
+              </div>
             </div>
             <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-              {products.map(p => {
+              {filteredProducts.map(p => {
                 const inCart = cart.find(c=>c.id===p.id);
                 return (
                   <div key={p.id} className="rounded-[18px] overflow-hidden bg-white border border-black/[0.04] shadow-[0_8px_24px_rgba(0,0,0,0.06)] hover:shadow-[0_16px_40px_rgba(0,0,0,0.12)] hover:-translate-y-1 transition-all group">
@@ -468,6 +511,12 @@ export default function App() {
                 );
               })}
             </div>
+            {filteredProducts.length === 0 && (
+              <div className="mt-4 rounded-[18px] border border-dashed border-[#C9A86A]/40 bg-white/60 px-4 py-8 text-center">
+                <p className="text-[14px] font-bold text-[#5E1C1C]">لا توجد أصناف تطابق هذين الخيارين</p>
+                <button type="button" onClick={() => { setSelectedCategory("الكل"); setSelectedPriceFilter("all"); }} className="mt-3 rounded-full bg-[#5E1C1C] px-4 py-2 text-[11px] font-bold text-white">عرض جميع الأصناف</button>
+              </div>
+            )}
 
             {/* Cart summary */}
             {cart.length>0 && defaultWhatsappNumber && (
