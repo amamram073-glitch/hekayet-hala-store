@@ -12,6 +12,7 @@ import {
 } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { db, storage } from "../firebase";
+import SalesCharts from "./SalesCharts";
 
 type Product = {
   id: number;
@@ -219,6 +220,7 @@ export default function AdminPanel({
           </div>
           <div className="mt-3 text-[11px] text-white/60">قيمة كل الطلبات المسجلة: {report.allRevenue} د.إ</div>
           {report.topProducts.length > 0 && <div className="mt-4 rounded-xl bg-white/10 p-3"><h3 className="text-[12px] font-bold">الأكثر طلبًا</h3><div className="mt-2 grid gap-1 text-[11px] text-white/75">{report.topProducts.map(([name, quantity]) => <div key={name} className="flex justify-between"><span>{name}</span><span>{quantity} قطعة</span></div>)}</div></div>}
+          <SalesCharts orders={orders} />
           <div className="mt-4 grid gap-2">{orders.slice(0, 12).map((order) => <div key={(order as Order & { firestoreDocId?: string }).firestoreDocId ?? order.id} className="rounded-xl bg-white p-3 text-[#1A0A05]"><div className="flex flex-wrap items-center justify-between gap-2"><div><div className="font-bold">{order.id} • {order.total} د.إ</div><div className="text-[11px] text-[#5E1C1C]/60">{order.userName || "عميل"} {order.customerPhone ? `• ${order.customerPhone}` : ""}</div></div><select value={order.status || "جديد"} onChange={(event) => changeOrderStatus(order, event.target.value)} className="rounded-full border border-[#C9A86A]/40 px-2 py-1 text-[11px] font-bold"><option>جديد</option><option>قيد التحضير</option><option>تم التوصيل</option><option>ملغى</option></select></div><div className="mt-2 text-[11px] text-[#5E1C1C]/65">{order.details || "تفاصيل الطلب غير متاحة"}</div></div>)}</div>
         </section>
 
