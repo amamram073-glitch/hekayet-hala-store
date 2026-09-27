@@ -2,20 +2,12 @@
 import { useState, useEffect, useRef } from "react";
 import { trpc } from "./lib/trpc";
 import { catalogSeed } from "@shared/catalog";
-import { auth, db, googleProvider, appleProvider, isFirebaseConfigured, defaultWhatsappNumber } from "./firebase";
-import { signInWithPopup, onAuthStateChanged, signOut, type User } from "firebase/auth";
+import { auth, db, isFirebaseConfigured, defaultWhatsappNumber } from "./firebase";
+import { onAuthStateChanged, signOut, type User } from "firebase/auth";
 import { collection, addDoc, getDocs, serverTimestamp, doc, updateDoc, getDoc } from "firebase/firestore";
+import { isValidE164PhoneNumber, normalizePhoneNumber } from "./lib/phoneAuth";
 const heroBg = "/manus-storage/hero_842b2022.webp";
 const cheesecakeCup = "/manus-storage/cheesecake_558e507c.jpeg";
-const imgLayaliLeb = "/manus-storage/layali-lebanon_ca243630.jpeg";
-const imgKaak = "/manus-storage/kaak-asawer_68d26c1d.jpeg";
-const imgHalba = "/manus-storage/halba_b11748a8.jpeg";
-const imgLayali = imgLayaliLeb;
-const imgMaamoul = "/manus-storage/maamoul_afd864a4.jpeg";
-const imgPetitfour = "/manus-storage/petitfour_35f57354.jpeg";
-const imgMaqruta = "/manus-storage/maqrouta_061f8551.jpeg";
-const imgMabshoura = "/manus-storage/mabshoura_04f58b59.jpeg";
-const imgSinabon2 = "/manus-storage/sinabon2_167424f4.jpeg";
 
 type Screen = "login" | "main" | "admin";
 type OrderMethod = "whatsapp" | "internal";
@@ -41,13 +33,6 @@ const fallbackProducts: Product[] = catalogSeed.map((product, index) => ({
   tag: product.tag,
   collection: product.collection,
 }));
-
-const collections = [
-  { id: 1, title: "حلويات باردة فلسطينية", count: "صنفان", image: imgLayaliLeb, accent: "#C9A86A" },
-  { id: 2, title: "مخبوزات بالتمر الملوكي", count: "3 أصناف", image: imgKaak, accent: "#2D4A22" },
-  { id: 3, title: "حلويات تراثية أصيلة", count: "صنفان", image: imgHalba, accent: "#5E1C1C" },
-  { id: 4, title: "التشكيلة العائلية", count: "6 أصناف", image: "/manus-storage/family-box_a8f9c1f4.webp", accent: "#C9A86A" },
-];
 
 export default function App() {
   const catalogQuery = trpc.catalog.list.useQuery(undefined, { retry: false });
@@ -79,7 +64,9 @@ export default function App() {
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [deliveryNote, setDeliveryNote] = useState("");
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [loginPhone, setLoginPhone] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
+  const [phoneLoginMessage, setPhoneLoginMessage] = useState("");
   const [tilt, setTilt] = useState({ rx: 2, ry: 0 });
 
   // Mouse parallax for 3D
@@ -141,40 +128,13 @@ export default function App() {
     return () => { active = false; };
   }, [user?.uid]);
 
-  const handleGoogleLogin = async () => {
-    setIsLoggingIn(true);
-    try {
-      if (isFirebaseConfigured && auth && googleProvider) {
-        const result = await signInWithPopup(auth, googleProvider);
-        setUser(result.user);
-        setScreen("main");
-        toast("تم تسجيل الدخول عبر Google ✓");
-      } else {
-        toast("تسجيل الدخول عبر Google غير متاح قبل إعداد Firebase. يمكنك المتابعة كضيف للطلب عبر واتساب.");
-      }
-    } catch (e: any) {
-      toast("فشل تسجيل الدخول: " + e.message);
-    } finally {
-      setIsLoggingIn(false);
+  const handlePhoneLoginPreparation = () => {
+    if (!isValidE164PhoneNumber(loginPhone)) {
+      setPhoneLoginMessage("أدخل رقم الجوال بصيغته الدولية مع مفتاح الدولة، مثل ‎+971501234567.");
+      return;
     }
-  };
-
-  const handleAppleLogin = async () => {
-    setIsLoggingIn(true);
-    try {
-      if (isFirebaseConfigured && auth && appleProvider) {
-        const result = await signInWithPopup(auth, appleProvider);
-        setUser(result.user);
-        setScreen("main");
-        toast("تم تسجيل الدخول عبر Apple ✓");
-      } else {
-        toast("تسجيل الدخول عبر Apple غير متاح قبل إعداد Firebase. يمكنك المتابعة كضيف للطلب عبر واتساب.");
-      }
-    } catch (e: any) {
-      toast("فشل تسجيل الدخول: " + e.message);
-    } finally {
-      setIsLoggingIn(false);
-    }
+    setLoginPhone(normalizePhoneNumber(loginPhone));
+    setPhoneLoginMessage("واجهة الرقم ورمز التحقق جاهزة. لن يُرسل رمز SMS أو يُنشأ دخول حقيقي حتى يُربط مزود الرسائل.");
   };
 
   const handleLogout = async () => {
@@ -351,9 +311,7 @@ export default function App() {
           </div>
 
           <div className="relative z-10 w-full h-full flex flex-col items-center justify-center px-4">
-            {!isFirebaseConfigured && (
-              <div className="mb-4 px-3 py-1.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-200 text-[11px]">تصفح واطلب كضيف عبر واتساب. تسجيل الدخول والطلبات الداخلية تتطلب إعداد Firebase.</div>
-            )}
+            <div className="mb-4 max-w-[400px] px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-500/25 text-amber-100 text-[11px] text-center leading-5">تسجيل الجوال عبر SMS قيد الإعداد. لن يُرسل رمز تحقق قبل ربط مزود الرسائل.</div>
 
             <div ref={null} className="w-full max-w-[400px] rounded-[28px] border border-[#C9A86A]/20 bg-white/[0.06] backdrop-blur-[24px] shadow-[0_24px_80px_rgba(0,0,0,0.6),inset_0_1px_0_rgba(255,255,255,0.12)] p-7 sm:p-8" style={{ transform: `perspective(1200px) rotateX(${tilt.rx}deg) rotateY(${tilt.ry}deg)`, transformStyle: "preserve-3d" }}>
               <div className="flex flex-col items-center text-center">
@@ -369,20 +327,18 @@ export default function App() {
                 <h2 className="mt-6 text-[20px] font-black text-white leading-tight">أهلاً بك في حكاية حلا</h2>
                 <p className="mt-2 text-[13px] leading-6 text-white/60">من قلب فلسطين إلى مائدتك<br/>وصفات جداتنا، بطعم الأصالة</p>
 
-                <div className="mt-7 w-full space-y-3">
-                  <button onClick={handleGoogleLogin} disabled={isLoggingIn || !isFirebaseConfigured} className="w-full h-[50px] rounded-[14px] bg-white text-[#1A0A05] font-bold text-[14px] shadow-[0_8px_24px_rgba(0,0,0,0.2)] hover:translate-y-[-1px] hover:shadow-[0_12px_32px_rgba(0,0,0,0.25)] active:translate-y-[0px] transition-all flex items-center justify-center gap-3 disabled:opacity-60">
-                    <span className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-500 via-red-500 to-yellow-500 grid place-items-center text-white text-[10px] font-black">G</span>
-                    {isLoggingIn ? "جاري..." : "متابعة باستخدام Google"}
-                  </button>
-
-                  <button onClick={handleAppleLogin} disabled={isLoggingIn || !isFirebaseConfigured} className="w-full h-[50px] rounded-[14px] bg-black text-white font-bold text-[14px] border border-white/10 shadow-[0_8px_24px_rgba(0,0,0,0.4)] hover:translate-y-[-1px] hover:shadow-[0_12px_32px_rgba(0,0,0,0.5)] active:translate-y-[0px] transition-all flex items-center justify-center gap-3 disabled:opacity-60">
-                    <span className="text-[18px]"></span>
-                    {isLoggingIn ? "جاري..." : "متابعة باستخدام Apple"}
-                  </button>
+                <div className="mt-7 w-full space-y-3 text-right">
+                  <label htmlFor="login-phone" className="block text-[12px] font-bold text-white/80">رقم الجوال</label>
+                  <input id="login-phone" dir="ltr" autoComplete="tel" inputMode="tel" value={loginPhone} onChange={(event) => { setLoginPhone(event.target.value); setPhoneLoginMessage(""); }} placeholder="+971 50 123 4567" className="w-full h-[48px] rounded-[14px] border border-white/15 bg-white/10 px-4 text-left text-white placeholder:text-white/35 outline-none focus:border-[#C9A86A] focus:ring-2 focus:ring-[#C9A86A]/20" />
+                  <button type="button" onClick={handlePhoneLoginPreparation} className="w-full h-[48px] rounded-[14px] bg-gradient-to-r from-[#C9A86A] to-[#8A6A2E] text-[#1A0A05] font-black text-[14px] shadow-[0_8px_24px_rgba(0,0,0,0.25)] active:scale-[0.98] transition-transform">متابعة برقم الجوال</button>
+                  <label htmlFor="verification-code" className="block pt-1 text-[12px] font-bold text-white/80">رمز التحقق</label>
+                  <input id="verification-code" dir="ltr" autoComplete="one-time-code" inputMode="numeric" maxLength={6} value={verificationCode} onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="• • • • • •" disabled className="w-full h-[48px] rounded-[14px] border border-white/10 bg-black/20 px-4 text-center tracking-[0.6em] text-white placeholder:text-white/25 disabled:cursor-not-allowed disabled:opacity-60" />
+                  <p className="text-[10px] leading-4 text-white/45">خانة الرمز جاهزة، وستُفعّل عند ربط إرسال SMS.</p>
+                  {phoneLoginMessage && <p role="status" className="rounded-xl border border-[#C9A86A]/20 bg-black/20 p-3 text-[11px] leading-5 text-[#F2DDAE]">{phoneLoginMessage}</p>}
                 </div>
 
                 <div className="mt-3 w-full">
-                  <button onClick={continueAsGuest} className="w-full h-[44px] rounded-[14px] border border-[#C9A86A]/40 bg-white/10 text-white font-bold text-[13px] hover:bg-white/15 transition-colors">المتابعة كضيف والطلب عبر واتساب</button>
+                  <button onClick={continueAsGuest} className="w-full h-[44px] rounded-[14px] border border-[#C9A86A]/40 bg-white/10 text-white font-bold text-[13px] hover:bg-white/15 transition-colors">متابعة التصفح كضيف</button>
                 </div>
 
                 <p className="mt-5 text-[11px] leading-5 text-white/35 text-center">بالمتابعة، توافق على شروط حكاية حلا الفلسطينية<br/><span className="text-[#C9A86A]/60">وصفات أصلية • إرسال الطلب عبر واتساب</span></p>
@@ -412,13 +368,14 @@ export default function App() {
                 </div>
               </div>
               <div className="flex items-center gap-3">
+                {!user && <button onClick={() => setScreen("login")} className="px-3 py-1.5 rounded-full bg-[#1A0A05]/55 backdrop-blur border border-[#C9A86A]/50 text-white text-[11px] font-bold">تسجيل الدخول</button>}
                 {!defaultWhatsappNumber && <span className="px-3 py-1.5 rounded-full bg-[#1A0A05]/45 backdrop-blur border border-white/20 text-white text-[11px] font-bold">كتالوج المنتجات</span>}
                 {isAdmin && <button onClick={()=>setScreen("admin")} className="relative px-3 py-1.5 rounded-full bg-[#1A0A05]/45 backdrop-blur border border-white/20 text-white text-[12px] font-bold">إدارة الطلبات {orders.length>0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#C1272D] text-white text-[9px] rounded-full grid place-items-center">{orders.length}</span>}</button>}
                 {defaultWhatsappNumber && <div className="relative">
                   <button onClick={()=>toast(`السلة: ${cartCount} منتجات - ${cartTotal} د.إ`)} className="px-3 py-1.5 rounded-full bg-[#1A0A05]/55 backdrop-blur border border-white/20 text-white text-[12px] font-bold">السلة • {cartCount}</button>
                 </div>}
                 {user && <div className="flex items-center gap-2">
-                  <span className="hidden sm:block text-[12px] font-medium max-w-[100px] truncate">{user?.displayName || user?.email}</span>
+                  <span className="hidden sm:block text-[12px] font-medium max-w-[100px] truncate">{user?.phoneNumber || user?.displayName || user?.email}</span>
                   <button onClick={handleLogout} className="w-8 h-8 rounded-full bg-[#1A0A05]/45 border border-white/20 grid place-items-center text-[12px]">⎋</button>
                 </div>}
               </div>
@@ -433,24 +390,6 @@ export default function App() {
             <div className="relative z-10 h-full flex flex-col items-center justify-center text-center px-4 pt-16">
               <div className="px-3 py-1 rounded-full bg-white/10 border border-white/15 text-[#C9A86A] text-[11px] font-bold backdrop-blur">حلويات فلسطينية</div>
               <button onClick={()=>document.getElementById('products')?.scrollIntoView({behavior:'smooth'})} className="absolute bottom-3 sm:bottom-4 left-1/2 -translate-x-1/2 px-7 h-[48px] rounded-full bg-[#FFFBF5] text-[#1A0A05] font-bold text-[13px] shadow-[0_10px_30px_rgba(0,0,0,0.25)] transition-transform hover:scale-[1.03] active:scale-[0.97]">استكشف الأصناف</button>
-            </div>
-          </section>
-
-          {/* Collections */}
-          <section className="mx-auto max-w-[1280px] px-4 py-8">
-            <h2 className="text-[18px] font-black">مجموعاتنا الفلسطينية 🌿</h2>
-            <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-              {collections.map(c => (
-                <div key={c.id} className="relative h-[160px] rounded-[20px] overflow-hidden shadow-[0_12px_32px_rgba(0,0,0,0.12)] group cursor-pointer" style={{ perspective: "1000px" }}>
-                  <img src={c.image} alt={c.title} className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.06] transition-transform duration-700" />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-                  <div className="absolute bottom-0 p-4 text-white">
-                    <div className="text-[14px] font-black">{c.title}</div>
-                    <div className="text-[11px] opacity-70">{c.count}</div>
-                  </div>
-                  <div className="absolute top-3 right-3 w-2 h-2 rounded-full" style={{ background: c.accent }} />
-                </div>
-              ))}
             </div>
           </section>
 
