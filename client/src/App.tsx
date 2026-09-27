@@ -6,6 +6,7 @@ import { auth, db, isFirebaseConfigured, defaultWhatsappNumber } from "./firebas
 import { onAuthStateChanged, signOut, type User } from "firebase/auth";
 import { collection, addDoc, getDocs, serverTimestamp, doc, updateDoc, getDoc } from "firebase/firestore";
 import { isValidE164PhoneNumber, normalizePhoneNumber } from "./lib/phoneAuth";
+import { getCyclicSlideIndex } from "./lib/familySlider";
 const heroBg = "/manus-storage/hero_842b2022.webp";
 const cheesecakeCup = "/manus-storage/cheesecake_558e507c.jpeg";
 const loginDessertImage = "/manus-storage/cheesecake-box_2a61d9d0.webp";
@@ -47,6 +48,7 @@ export default function App() {
     tag: product.tag,
     collection: product.collection,
   })) ?? fallbackProducts;
+  const familyProducts = products.filter((product) => product.collection === "family");
   const [screen, setScreen] = useState<Screen>("main");
   const [user, setUser] = useState<User | any>(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -69,6 +71,8 @@ export default function App() {
   const [verificationCode, setVerificationCode] = useState("");
   const [phoneLoginMessage, setPhoneLoginMessage] = useState("");
   const [tilt, setTilt] = useState({ rx: 2, ry: 0 });
+  const [activeFamilySlide, setActiveFamilySlide] = useState(0);
+  const currentFamilyProduct = familyProducts[activeFamilySlide] ?? familyProducts[0];
 
   // Mouse parallax for 3D
   useEffect(() => {
@@ -81,6 +85,19 @@ export default function App() {
     window.addEventListener("mousemove", handleMouse);
     return () => window.removeEventListener("mousemove", handleMouse);
   }, []);
+
+  useEffect(() => {
+    if (screen !== "login" || familyProducts.length < 2) return;
+    const interval = window.setInterval(() => {
+      setActiveFamilySlide((current) => getCyclicSlideIndex(current, 1, familyProducts.length));
+    }, 4200);
+    return () => window.clearInterval(interval);
+  }, [screen, familyProducts.length]);
+
+  const moveFamilySlide = (direction: -1 | 1) => {
+    if (familyProducts.length < 2) return;
+    setActiveFamilySlide((current) => getCyclicSlideIndex(current, direction, familyProducts.length));
+  };
 
   // Persist cart
   useEffect(() => {
@@ -291,6 +308,7 @@ export default function App() {
         @keyframes floatY { 0%,100%{ transform: translateY(0px) rotate(-1deg);} 50%{ transform: translateY(-14px) rotate(1deg);} }
         @keyframes kenBurns { 0%{ transform: scale(1) } 100%{ transform: scale(1.06) } }
         @keyframes fadeInUp { from{ opacity:0; transform: translateY(24px)} to{ opacity:1; transform: translateY(0)} }
+        @keyframes familySlideIn { from{ opacity:0.55; transform: scale(1.025) } to{ opacity:1; transform: scale(1) } }
         .tatreez {
           background-image:
             radial-gradient(circle at 2px 2px, rgba(201,168,106,0.18) 1px, transparent 0),
@@ -320,10 +338,20 @@ export default function App() {
                 <h1 className="mt-4 text-[28px] font-black text-white tracking-tight" style={{ fontFamily: "'Amiri', serif" }}>حكاية حلا</h1>
                 <p className="mt-1 text-[13px] text-[#C9A86A] font-bold tracking-[0.2em]">HEKAYET HALA</p>
 
-                <div className="mt-6 relative w-[190px] h-[152px] sm:w-[210px] sm:h-[168px]">
-                  <img src={loginDessertImage} alt="بوكس تشيز كيك من حكاية حلا" onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = cheesecakeCup; }} className="w-full h-full object-cover rounded-[24px] shadow-[0_16px_40px_rgba(0,0,0,0.4)] border border-white/15" style={{ animation: "floatY 5s ease-in-out infinite" }} />
-                  <div className="absolute -bottom-2 inset-x-4 h-[12px] bg-black/40 blur-[8px] rounded-full" />
-                </div>
+                {currentFamilyProduct && <div className="mt-6 w-[220px] sm:w-[250px]">
+                  <div className="relative h-[158px] sm:h-[172px] overflow-hidden rounded-[22px] border border-white/15 bg-white/10 shadow-[0_16px_40px_rgba(0,0,0,0.4)]">
+                    <img key={currentFamilyProduct.slug} src={currentFamilyProduct.image || loginDessertImage} alt={currentFamilyProduct.name} onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = cheesecakeCup; }} className="absolute inset-0 h-full w-full object-cover" style={{ animation: "familySlideIn 320ms ease-out" }} />
+                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-3 pb-2 pt-8 text-right">
+                      <div aria-live="polite" className="truncate text-[12px] font-black text-white">{currentFamilyProduct.name}</div>
+                      <div className="mt-0.5 text-[10px] font-bold text-[#E7CC94]">{currentFamilyProduct.price} د.إ</div>
+                    </div>
+                    <button type="button" aria-label="الصورة العائلية السابقة" onClick={() => moveFamilySlide(-1)} className="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full border border-white/20 bg-black/45 text-xl text-white backdrop-blur transition hover:bg-black/70 focus:outline-none focus:ring-2 focus:ring-[#C9A86A]">‹</button>
+                    <button type="button" aria-label="الصورة العائلية التالية" onClick={() => moveFamilySlide(1)} className="absolute left-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full border border-white/20 bg-black/45 text-xl text-white backdrop-blur transition hover:bg-black/70 focus:outline-none focus:ring-2 focus:ring-[#C9A86A]">›</button>
+                  </div>
+                  <div className="mt-2 flex items-center justify-center gap-2" role="group" aria-label="اختيار صورة من المنتجات العائلية">
+                    {familyProducts.map((product, index) => <button key={product.slug} type="button" aria-label={`عرض ${product.name}`} aria-current={index === activeFamilySlide ? "true" : undefined} onClick={() => setActiveFamilySlide(index)} className={`h-2 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-[#C9A86A] ${index === activeFamilySlide ? "w-6 bg-[#C9A86A]" : "w-2 bg-white/35 hover:bg-white/70"}`} />)}
+                  </div>
+                </div>}
 
                 <h2 className="mt-6 text-[20px] font-black text-white leading-tight">أهلاً بك في حكاية حلا</h2>
                 <p className="mt-2 text-[13px] leading-6 text-white/60">من قلب فلسطين إلى مائدتك<br/>وصفات جداتنا، بطعم الأصالة</p>
