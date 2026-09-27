@@ -9,6 +9,7 @@
 - رفع صور المنتجات مباشرة إلى Firebase Storage مع السماح بصور JPG/PNG/WEBP/AVIF فقط وبحد أقصى 5MB.
 - تعديل العنوان والوصف والشارة ومحتوى «من نحن» والأسئلة الشائعة والسياسات وبيانات التواصل.
 - حفظ المنتجات والمحتوى في Firestore ليظهرا لجميع الزوار من أي جهاز.
+- إرسال إشعار واتساب تلقائي عند تغيير حالة الطلب عبر Firebase Function وTwilio WhatsApp API.
 
 ## الإعداد اليدوي المطلوب
 
@@ -36,6 +37,32 @@
 
 7. سجّل نطاق الموقع المنشور في Firebase Authentication ضمن **Authorized domains**.
 8. يجب أن يكون الموقع المنشور عبر HTTPS؛ الاستضافة الحالية توفر ذلك في الإنتاج.
+
+## إعداد إشعارات Twilio WhatsApp
+
+1. أنشئ حساب Twilio وفعّل WhatsApp Sender أو Sandbox للاختبار.
+2. أنشئ قالب رسالة Utility معتمدًا إذا كان الإشعار قد يُرسل خارج نافذة محادثة العميل. المتغيرات المستخدمة هي:
+   - `1`: رقم الطلب.
+   - `2`: الحالة الجديدة.
+   - `3`: الإجمالي.
+3. من مجلد المشروع ثبّت اعتماديات الوظائف ثم أنشئ أسرار Firebase:
+
+   ```bash
+   cd functions
+   npm install
+   cd ..
+   firebase functions:secrets:set TWILIO_ACCOUNT_SID
+   firebase functions:secrets:set TWILIO_AUTH_TOKEN
+   firebase functions:secrets:set TWILIO_WHATSAPP_FROM
+   firebase functions:secrets:set TWILIO_CONTENT_SID
+   firebase deploy --only functions:notifyOrderStatus
+   ```
+
+   عند طلب القيم، أدخلها في الطرفية فقط ولا تضعها في GitHub. قيمة `TWILIO_WHATSAPP_FROM` تكون رقم واتساب بصيغة دولية، مثل `+14155238886`.
+
+4. بعد النشر، يؤدي تغيير `status` في مستند `orders` إلى تشغيل الوظيفة وإرسال الرسالة إلى `customerPhone`.
+
+في بيئة الاختبار، يجب أن يوافق العميل على رسالة Twilio Sandbox. وفي الإنتاج يجب استخدام رسالة Utility معتمدة والالتزام بموافقة العميل وقواعد WhatsApp Business.
 
 ## الدخول
 
