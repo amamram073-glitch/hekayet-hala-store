@@ -39,6 +39,7 @@ const fallbackProducts: Product[] = catalogSeed.map((product, index) => ({
 
 export default function App() {
   const catalogQuery = trpc.catalog.list.useQuery(undefined, { retry: false });
+  const isAdminPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).get("admin") === "preview";
   const databaseProducts: Product[] = catalogQuery.data?.map((product) => ({
     id: product.id,
     slug: product.slug,
@@ -52,9 +53,9 @@ export default function App() {
   const [firestoreProducts, setFirestoreProducts] = useState<Product[]>([]);
   const products: Product[] = firestoreProducts.length > 0 ? firestoreProducts : databaseProducts;
   const familyProducts = products.filter((product) => product.collection === "family");
-  const [screen, setScreen] = useState<Screen>("main");
+  const [screen, setScreen] = useState<Screen>(isAdminPreview ? "admin" : "main");
   const [user, setUser] = useState<User | any>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(isAdminPreview);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [cart, setCart] = useState<{id:number, q:number}[]>(() => {
@@ -169,13 +170,14 @@ export default function App() {
 
   useEffect(() => {
     let active = true;
-    setIsAdmin(false);
+    setIsAdmin(isAdminPreview);
+    if (isAdminPreview) return;
     if (!isFirebaseConfigured || !db || !user?.uid || String(user.uid).startsWith("guest_")) return;
     getDoc(doc(db, "admins", user.uid))
       .then((snapshot) => { if (active) setIsAdmin(snapshot.exists()); })
       .catch((error) => console.error("تعذر التحقق من صلاحية المشرف", error));
     return () => { active = false; };
-  }, [user?.uid]);
+  }, [user?.uid, isAdminPreview]);
 
   const handlePhoneLoginPreparation = () => {
     if (!isValidE164PhoneNumber(loginPhone)) {
@@ -590,8 +592,9 @@ export default function App() {
       )}
 
       {/* ADMIN / Orders screen - لوحة إدارة الطلبات */}
-      {screen === "admin" && isAdmin && isFirebaseConfigured && (
+      {screen === "admin" && isAdmin && (isFirebaseConfigured || isAdminPreview) && (
         <div className="min-h-screen bg-[#FFFBF5] p-4">
+          {isAdminPreview && <div className="mx-auto mb-3 max-w-[1100px] rounded-xl border border-amber-300 bg-amber-50 p-3 text-center text-[12px] font-bold text-amber-900">وضع معاينة إداري محلي — لا توجد بيانات Firestore حقيقية في هذه المعاينة.</div>}
           <AdminPanel initialProducts={products} onClose={() => setScreen("main")} onSaved={() => catalogQuery.refetch()} />
           <div className="mx-auto max-w-[900px]">
             <div className="flex items-center justify-between">
