@@ -8,6 +8,7 @@ import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { apiRateLimit, securityHeaders } from "./security";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -31,14 +32,18 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
-  // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  app.disable("x-powered-by");
+  app.set("trust proxy", 1);
+  app.use(securityHeaders);
+  // Images are uploaded directly to Firebase Storage; keep API bodies small.
+  app.use(express.json({ limit: "1mb" }));
+  app.use(express.urlencoded({ limit: "1mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
   // tRPC API
   app.use(
     "/api/trpc",
+    apiRateLimit(),
     createExpressMiddleware({
       router: appRouter,
       createContext,

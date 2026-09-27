@@ -3,10 +3,11 @@ import { useState, useEffect, useRef } from "react";
 import { trpc } from "./lib/trpc";
 import { catalogSeed } from "@shared/catalog";
 import { auth, db, isFirebaseConfigured, defaultWhatsappNumber } from "./firebase";
-import { onAuthStateChanged, signOut, type User } from "firebase/auth";
-import { collection, addDoc, getDocs, serverTimestamp, doc, updateDoc, getDoc } from "firebase/firestore";
+import { onAuthStateChanged, signOut, signInWithEmailAndPassword, type User } from "firebase/auth";
+import { collection, addDoc, getDocs, serverTimestamp, doc, updateDoc, getDoc, onSnapshot, query, orderBy } from "firebase/firestore";
 import { isValidE164PhoneNumber, normalizePhoneNumber } from "./lib/phoneAuth";
 import { getCyclicSlideIndex } from "./lib/familySlider";
+import AdminPanel from "./components/AdminPanel";
 const heroBg = "/manus-storage/hero_842b2022.webp";
 const cheesecakeCup = "/manus-storage/cheesecake_558e507c.jpeg";
 const loginDessertImage = "/manus-storage/cheesecake-box_2a61d9d0.webp";
@@ -38,7 +39,7 @@ const fallbackProducts: Product[] = catalogSeed.map((product, index) => ({
 
 export default function App() {
   const catalogQuery = trpc.catalog.list.useQuery(undefined, { retry: false });
-  const products: Product[] = catalogQuery.data?.map((product) => ({
+  const databaseProducts: Product[] = catalogQuery.data?.map((product) => ({
     id: product.id,
     slug: product.slug,
     name: product.name,
@@ -48,6 +49,8 @@ export default function App() {
     tag: product.tag,
     collection: product.collection,
   })) ?? fallbackProducts;
+  const [firestoreProducts, setFirestoreProducts] = useState<Product[]>([]);
+  const products: Product[] = firestoreProducts.length > 0 ? firestoreProducts : databaseProducts;
   const familyProducts = products.filter((product) => product.collection === "family");
   const [screen, setScreen] = useState<Screen>("main");
   const [user, setUser] = useState<User | any>(null);
@@ -70,8 +73,24 @@ export default function App() {
   const [loginPhone, setLoginPhone] = useState("");
   const [verificationCode, setVerificationCode] = useState("");
   const [phoneLoginMessage, setPhoneLoginMessage] = useState("");
+  const [adminEmail, setAdminEmail] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
   const [tilt, setTilt] = useState({ rx: 2, ry: 0 });
   const [activeFamilySlide, setActiveFamilySlide] = useState(0);
+  const [siteContent, setSiteContent] = useState({
+    heroTitle: "حلويات فلسطينية أصيلة",
+    heroDescription: "من قلب فلسطين إلى مائدتك، وصفات جداتنا بطعم الأصالة",
+    heroBadge: "حلويات فلسطينية",
+    aboutTitle: "حكاية حلا من فلسطين",
+    aboutText: "نقدّم حلويات فلسطينية أصيلة بوصفات عائلية ومكونات مختارة.",
+    faq: [] as Array<{ question: string; answer: string }>,
+    contactPhone: "",
+    contactEmail: "",
+    contactAddress: "",
+    deliveryPolicy: "سيتم التنسيق معكم عبر واتساب.",
+    returnPolicy: "يرجى التواصل معنا فورًا عند وجود أي مشكلة في الطلب.",
+    privacyPolicy: "نستخدم بيانات التواصل لإتمام الطلب فقط.",
+  });
   const currentFamilyProduct = familyProducts[activeFamilySlide] ?? familyProducts[0];
 
   // Mouse parallax for 3D
@@ -93,6 +112,18 @@ export default function App() {
     }, 4200);
     return () => window.clearInterval(interval);
   }, [screen, familyProducts.length]);
+
+  useEffect(() => {
+    if (!db) return;
+    const productsQuery = query(collection(db, "products"), orderBy("id", "asc"));
+    const unsubscribeProducts = onSnapshot(productsQuery, (snapshot) => {
+      setFirestoreProducts(snapshot.docs.map((item) => ({ id: Number(item.data().id), ...item.data() } as Product)));
+    }, (error) => console.error("تعذر تحميل منتجات Firebase", error));
+    const unsubscribeContent = onSnapshot(doc(db, "siteContent", "main"), (snapshot) => {
+      if (snapshot.exists()) setSiteContent((current) => ({ ...current, ...snapshot.data() }));
+    }, (error) => console.error("تعذر تحميل محتوى الموقع", error));
+    return () => { unsubscribeProducts(); unsubscribeContent(); };
+  }, []);
 
   const moveFamilySlide = (direction: -1 | 1) => {
     if (familyProducts.length < 2) return;
@@ -153,6 +184,20 @@ export default function App() {
     }
     setLoginPhone(normalizePhoneNumber(loginPhone));
     setPhoneLoginMessage("واجهة الرقم ورمز التحقق جاهزة. لن يُرسل رمز SMS أو يُنشأ دخول حقيقي حتى يُربط مزود الرسائل.");
+  };
+
+  const handleAdminLogin = async () => {
+    if (!auth || !isFirebaseConfigured || !adminEmail.trim() || adminPassword.length < 8) {
+      setPhoneLoginMessage("أدخل بريد المشرف وكلمة مرور من 8 أحرف على الأقل.");
+      return;
+    }
+    try {
+      await signInWithEmailAndPassword(auth, adminEmail.trim(), adminPassword);
+      setPhoneLoginMessage("");
+    } catch (error) {
+      console.error(error);
+      setPhoneLoginMessage("تعذر تسجيل الدخول. تحقق من البيانات أو إعداد Firebase Authentication.");
+    }
   };
 
   const handleLogout = async () => {
@@ -370,6 +415,13 @@ export default function App() {
                   <button onClick={continueAsGuest} className="w-full h-[44px] rounded-[14px] border border-[#C9A86A]/40 bg-white/10 text-white font-bold text-[13px] hover:bg-white/15 transition-colors">متابعة التصفح كضيف</button>
                 </div>
 
+                {isFirebaseConfigured && <div className="mt-5 w-full border-t border-white/10 pt-5 text-right">
+                  <p className="mb-2 text-[11px] font-bold text-[#F2DDAE]">دخول الإدارة</p>
+                  <input type="email" value={adminEmail} onChange={(event) => setAdminEmail(event.target.value)} placeholder="البريد الإلكتروني" autoComplete="username" className="mb-2 w-full h-[44px] rounded-[12px] border border-white/15 bg-white/10 px-3 text-left text-white placeholder:text-white/35 outline-none focus:border-[#C9A86A]" />
+                  <input type="password" value={adminPassword} onChange={(event) => setAdminPassword(event.target.value)} placeholder="كلمة المرور" autoComplete="current-password" className="mb-2 w-full h-[44px] rounded-[12px] border border-white/15 bg-white/10 px-3 text-left text-white placeholder:text-white/35 outline-none focus:border-[#C9A86A]" />
+                  <button type="button" onClick={handleAdminLogin} className="w-full h-[44px] rounded-[12px] border border-[#C9A86A]/60 text-[#F2DDAE] font-bold text-[12px]">دخول المشرف</button>
+                </div>}
+
                 <p className="mt-5 text-[11px] leading-5 text-white/35 text-center">بالمتابعة، توافق على شروط حكاية حلا الفلسطينية<br/><span className="text-[#C9A86A]/60">وصفات أصلية • إرسال الطلب عبر واتساب</span></p>
               </div>
             </div>
@@ -417,7 +469,9 @@ export default function App() {
             <div className="absolute inset-0 bg-gradient-to-b from-[#1A0A05]/45 via-[#1A0A05]/28 to-[#1A0A05]/45" />
             <div className="absolute inset-0 tatreez opacity-[0.12]" />
             <div className="relative z-10 h-full flex flex-col items-center justify-center text-center px-4 pt-16">
-              <div className="px-3 py-1 rounded-full bg-white/10 border border-white/15 text-[#C9A86A] text-[11px] font-bold backdrop-blur">حلويات فلسطينية</div>
+              <div className="px-3 py-1 rounded-full bg-white/10 border border-white/15 text-[#C9A86A] text-[11px] font-bold backdrop-blur">{siteContent.heroBadge}</div>
+              <h1 className="mt-4 max-w-[760px] text-4xl font-black text-white drop-shadow-lg sm:text-6xl">{siteContent.heroTitle}</h1>
+              <p className="mt-3 max-w-[620px] text-sm leading-7 text-white/85 sm:text-base">{siteContent.heroDescription}</p>
               <button onClick={()=>document.getElementById('products')?.scrollIntoView({behavior:'smooth'})} className="absolute bottom-3 sm:bottom-4 left-1/2 -translate-x-1/2 px-7 h-[48px] rounded-full bg-[#FFFBF5] text-[#1A0A05] font-bold text-[13px] shadow-[0_10px_30px_rgba(0,0,0,0.25)] transition-transform hover:scale-[1.03] active:scale-[0.97]">استكشف الأصناف</button>
             </div>
           </section>
@@ -495,6 +549,13 @@ export default function App() {
             )}
           </section>
 
+          <section className="mx-auto grid max-w-[1280px] gap-4 px-4 pb-10 sm:grid-cols-2">
+            <article className="rounded-[20px] bg-white p-5 shadow-sm"><h2 className="text-lg font-black">{siteContent.aboutTitle}</h2><p className="mt-2 text-sm leading-7 text-[#5E1C1C]/70">{siteContent.aboutText}</p></article>
+            <article className="rounded-[20px] bg-white p-5 shadow-sm"><h2 className="text-lg font-black">الأسئلة الشائعة</h2>{siteContent.faq.length ? <div className="mt-2 space-y-3">{siteContent.faq.map((item, index) => <details key={`${item.question}-${index}`} className="rounded-lg bg-[#FFFBF5] p-3"><summary className="cursor-pointer text-sm font-bold">{item.question}</summary><p className="mt-2 text-sm leading-6 text-[#5E1C1C]/70">{item.answer}</p></details>)}</div> : <p className="mt-2 text-sm text-[#5E1C1C]/60">يمكنكم التواصل معنا عبر واتساب لأي استفسار.</p>}</article>
+            <article className="rounded-[20px] bg-white p-5 shadow-sm"><h2 className="text-lg font-black">التوصيل والاسترجاع والخصوصية</h2><p className="mt-2 text-sm leading-7 text-[#5E1C1C]/70"><b>التوصيل:</b> {siteContent.deliveryPolicy}</p><p className="mt-2 text-sm leading-7 text-[#5E1C1C]/70"><b>الاسترجاع:</b> {siteContent.returnPolicy}</p><p className="mt-2 text-sm leading-7 text-[#5E1C1C]/70"><b>الخصوصية:</b> {siteContent.privacyPolicy}</p></article>
+            <article className="rounded-[20px] bg-white p-5 shadow-sm"><h2 className="text-lg font-black">تواصل معنا</h2><div className="mt-2 space-y-1 text-sm text-[#5E1C1C]/70">{siteContent.contactPhone && <p>الهاتف: {siteContent.contactPhone}</p>}{siteContent.contactEmail && <p>الإيميل: {siteContent.contactEmail}</p>}{siteContent.contactAddress && <p>العنوان: {siteContent.contactAddress}</p>}{!siteContent.contactPhone && !siteContent.contactEmail && !siteContent.contactAddress && <p>تواصلوا معنا عبر واتساب.</p>}</div></article>
+          </section>
+
           {/* Toast */}
           {showToast && (
             <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-full bg-[#1A0A05] text-white text-[12px] font-bold shadow-[0_12px_32px_rgba(0,0,0,0.3)] border border-[#C9A86A]/20">
@@ -531,6 +592,7 @@ export default function App() {
       {/* ADMIN / Orders screen - لوحة إدارة الطلبات */}
       {screen === "admin" && isAdmin && isFirebaseConfigured && (
         <div className="min-h-screen bg-[#FFFBF5] p-4">
+          <AdminPanel initialProducts={products} onClose={() => setScreen("main")} onSaved={() => catalogQuery.refetch()} />
           <div className="mx-auto max-w-[900px]">
             <div className="flex items-center justify-between">
               <h1 className="text-[20px] font-black">لوحة إدارة الطلبات {orderMethod==="whatsapp" ? "(واتساب)" : "(داخلي)"}</h1>

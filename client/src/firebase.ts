@@ -1,6 +1,7 @@
 import { initializeApp, type FirebaseApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, OAuthProvider, type Auth } from "firebase/auth";
 import { getFirestore, type Firestore } from "firebase/firestore";
+import { getStorage, type FirebaseStorage } from "firebase/storage";
 
 const env = import.meta.env;
 const firebaseConfig = {
@@ -25,6 +26,7 @@ const isFirebaseConfigured = requiredFirebaseValues.every(
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 let db: Firestore | null = null;
+let storage: FirebaseStorage | null = null;
 let googleProvider: GoogleAuthProvider | null = null;
 let appleProvider: OAuthProvider | null = null;
 
@@ -33,6 +35,7 @@ if (isFirebaseConfigured) {
     app = initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = getFirestore(app);
+    storage = getStorage(app);
     googleProvider = new GoogleAuthProvider();
     appleProvider = new OAuthProvider("apple.com");
   } catch (error) {
@@ -45,7 +48,7 @@ if (!firebaseReady) {
   console.info("Firebase غير مهيأ: ستظل المصادقة والطلبات الداخلية معطلة، ويمكن استخدام الطلب عبر واتساب كضيف.");
 }
 
-export { auth, db, googleProvider, appleProvider, firebaseReady as isFirebaseConfigured };
+export { auth, db, storage, googleProvider, appleProvider, firebaseReady as isFirebaseConfigured };
 export const adminEmails = (env.VITE_ADMIN_EMAILS ?? "")
   .split(",")
   .map((email: string) => email.trim().toLowerCase())
