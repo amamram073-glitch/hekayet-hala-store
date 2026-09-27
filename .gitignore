@@ -5,6 +5,7 @@
 # Build outputs
 dist/
 build/
+functions/lib/
 *.dist
 
 # Environment variables
