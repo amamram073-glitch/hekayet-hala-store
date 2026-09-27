@@ -8,9 +8,11 @@ import { collection, addDoc, getDocs, serverTimestamp, doc, updateDoc, getDoc, o
 import { isValidE164PhoneNumber, normalizePhoneNumber } from "./lib/phoneAuth";
 import { getCyclicSlideIndex } from "./lib/familySlider";
 import AdminPanel from "./components/AdminPanel";
-const heroBg = "/manus-storage/hero_842b2022.webp";
-const cheesecakeCup = "/manus-storage/cheesecake_558e507c.jpeg";
-const loginDessertImage = "/manus-storage/cheesecake-box_2a61d9d0.webp";
+const storageOrigin = import.meta.env.VITE_MANUS_STORAGE_ORIGIN ?? "";
+const resolveImage = (image: string) => image.startsWith("/manus-storage/") ? `${storageOrigin}${image}` : image;
+const heroBg = resolveImage("/manus-storage/hero_842b2022.webp");
+const cheesecakeCup = resolveImage("/manus-storage/cheesecake_558e507c.jpeg");
+const loginDessertImage = resolveImage("/manus-storage/cheesecake-box_2a61d9d0.webp");
 
 type Screen = "login" | "main" | "admin";
 type OrderMethod = "whatsapp" | "internal";
@@ -31,7 +33,7 @@ const fallbackProducts: Product[] = catalogSeed.map((product, index) => ({
   slug: product.slug,
   name: product.name,
   price: product.price,
-  image: product.image,
+  image: resolveImage(product.image),
   desc: product.description,
   tag: product.tag,
   collection: product.collection,
@@ -45,7 +47,7 @@ export default function App() {
     slug: product.slug,
     name: product.name,
     price: product.price,
-    image: product.image,
+    image: resolveImage(product.image),
     desc: product.description,
     tag: product.tag,
     collection: product.collection,
