@@ -24,6 +24,17 @@ type Product = {
   collection: "classic" | "family";
 };
 
+type Order = {
+  id: string;
+  total: number;
+  status?: string;
+  userName?: string;
+  customerPhone?: string;
+  details?: string;
+  date?: string;
+  items?: Array<{ name: string; quantity: number; unitPrice: number }>;
+};
+
 type Content = {
   heroTitle: string;
   heroDescription: string;
@@ -66,6 +77,7 @@ export default function AdminPanel({
   const [products, setProducts] = useState<Product[]>(initialProducts);
   const [content, setContent] = useState<Content>(defaultContent);
   const [editing, setEditing] = useState<Product | null>(null);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [message, setMessage] = useState("");
   const [uploading, setUploading] = useState(false);
 
@@ -79,7 +91,11 @@ export default function AdminPanel({
     const unsubscribeContent = onSnapshot(doc(db, "siteContent", "main"), (snapshot) => {
       if (snapshot.exists()) setContent({ ...defaultContent, ...(snapshot.data() as Partial<Content>) });
     });
-    return () => { unsubscribeProducts(); unsubscribeContent(); };
+    const ordersQuery = query(collection(db, "orders"), orderBy("date", "desc"));
+    const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
+      setOrders(snapshot.docs.map((item) => ({ ...item.data(), firestoreDocId: item.id } as unknown as Order)));
+    });
+    return () => { unsubscribeProducts(); unsubscribeContent(); unsubscribeOrders(); };
   }, []);
 
   const persistMessage = (text: string) => {
@@ -163,6 +179,26 @@ export default function AdminPanel({
   };
 
   const faqText = useMemo(() => content.faq.map((item) => `${item.question}||${item.answer}`).join("\n"), [content.faq]);
+  const report = useMemo(() => {
+    const delivered = orders.filter((order) => order.status === "تم التوصيل");
+    const revenue = delivered.reduce((sum, order) => sum + Number(order.total || 0), 0);
+    const allRevenue = orders.reduce((sum, order) => sum + Number(order.total || 0), 0);
+    const productSales = new Map<string, number>();
+    orders.forEach((order) => order.items?.forEach((item) => productSales.set(item.name, (productSales.get(item.name) ?? 0) + Number(item.quantity || 0))));
+    const topProducts = Array.from(productSales.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    return { delivered: delivered.length, revenue, allRevenue, topProducts };
+  }, [orders]);
+
+  const changeOrderStatus = async (order: Order, status: string) => {
+    if (!db || !(order as Order & { firestoreDocId?: string }).firestoreDocId) return;
+    try {
+      await updateDoc(doc(db, "orders", (order as Order & { firestoreDocId: string }).firestoreDocId), { status });
+      persistMessage("تم تحديث حالة الطلب.");
+    } catch (error) {
+      console.error(error);
+      persistMessage("تعذر تحديث حالة الطلب.");
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#FFFBF5] p-4" dir="rtl">
@@ -172,6 +208,19 @@ export default function AdminPanel({
           <button onClick={onClose} className="rounded-full bg-[#1A0A05] px-4 py-2 text-[12px] font-bold text-white">العودة للمتجر</button>
         </div>
         {message && <div role="status" className="mt-4 rounded-xl border border-[#C9A86A]/30 bg-[#C9A86A]/10 p-3 text-[12px] font-bold">{message}</div>}
+
+        <section className="mt-5 rounded-2xl bg-[#1A0A05] p-4 text-white shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="font-black">التقارير وتتبع الطلبات</h2><span className="text-[11px] text-white/60">الأرقام من الطلبات الداخلية المحفوظة</span></div>
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="rounded-xl bg-white/10 p-3"><div className="text-[11px] text-white/60">كل الطلبات</div><div className="mt-1 text-xl font-black">{orders.length}</div></div>
+            <div className="rounded-xl bg-white/10 p-3"><div className="text-[11px] text-white/60">قيد المتابعة</div><div className="mt-1 text-xl font-black">{orders.filter((order) => order.status !== "تم التوصيل").length}</div></div>
+            <div className="rounded-xl bg-white/10 p-3"><div className="text-[11px] text-white/60">طلبات مكتملة</div><div className="mt-1 text-xl font-black">{report.delivered}</div></div>
+            <div className="rounded-xl bg-[#C9A86A]/25 p-3"><div className="text-[11px] text-[#F2DDAE]">المبيعات المؤكدة</div><div className="mt-1 text-xl font-black text-[#F2DDAE]">{report.revenue} د.إ</div></div>
+          </div>
+          <div className="mt-3 text-[11px] text-white/60">قيمة كل الطلبات المسجلة: {report.allRevenue} د.إ</div>
+          {report.topProducts.length > 0 && <div className="mt-4 rounded-xl bg-white/10 p-3"><h3 className="text-[12px] font-bold">الأكثر طلبًا</h3><div className="mt-2 grid gap-1 text-[11px] text-white/75">{report.topProducts.map(([name, quantity]) => <div key={name} className="flex justify-between"><span>{name}</span><span>{quantity} قطعة</span></div>)}</div></div>}
+          <div className="mt-4 grid gap-2">{orders.slice(0, 12).map((order) => <div key={(order as Order & { firestoreDocId?: string }).firestoreDocId ?? order.id} className="rounded-xl bg-white p-3 text-[#1A0A05]"><div className="flex flex-wrap items-center justify-between gap-2"><div><div className="font-bold">{order.id} • {order.total} د.إ</div><div className="text-[11px] text-[#5E1C1C]/60">{order.userName || "عميل"} {order.customerPhone ? `• ${order.customerPhone}` : ""}</div></div><select value={order.status || "جديد"} onChange={(event) => changeOrderStatus(order, event.target.value)} className="rounded-full border border-[#C9A86A]/40 px-2 py-1 text-[11px] font-bold"><option>جديد</option><option>قيد التحضير</option><option>تم التوصيل</option><option>ملغى</option></select></div><div className="mt-2 text-[11px] text-[#5E1C1C]/65">{order.details || "تفاصيل الطلب غير متاحة"}</div></div>)}</div>
+        </section>
 
         <section className="mt-5 rounded-2xl bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between"><h2 className="font-black">المنتجات</h2><button onClick={addProduct} className="rounded-full bg-[#1A0A05] px-4 py-2 text-[12px] font-bold text-white">+ إضافة منتج</button></div>
