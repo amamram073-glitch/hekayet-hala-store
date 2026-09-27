@@ -1,9 +1,10 @@
 
 import { useState, useEffect, useRef } from "react";
+import { trpc } from "./lib/trpc";
+import { catalogSeed } from "@shared/catalog";
 import { auth, db, googleProvider, appleProvider, isFirebaseConfigured, defaultWhatsappNumber } from "./firebase";
 import { signInWithPopup, onAuthStateChanged, signOut, type User } from "firebase/auth";
 import { collection, addDoc, getDocs, serverTimestamp, doc, updateDoc, getDoc } from "firebase/firestore";
-
 const heroBg = "/manus-storage/hero_842b2022.webp";
 const cheesecakeCup = "/manus-storage/cheesecake_558e507c.jpeg";
 const imgLayaliLeb = "/manus-storage/layali-lebanon_ca243630.jpeg";
@@ -21,48 +22,50 @@ type OrderMethod = "whatsapp" | "internal";
 
 interface Product {
   id: number;
+  slug: string;
   name: string;
   price: number;
   image: string;
   desc: string;
   tag: string;
+  collection: "classic" | "family";
 }
 
-const products: Product[] = [
-  { id: 1, name: "تشيز كيك", price: 18, image: cheesecakeCup, desc: "تشيز كيك كريمي بطبقة فستق حلبي فلسطيني، وصفة جداتنا الأصيلة.", tag: "بارد" },
-  { id: 2, name: "ليالي لبنان", price: 18, image: imgLayaliLeb, desc: "حلّى ليالي لبنان الناعم بسميد وحليب، مزيّن بالفستق وماء الزهر.", tag: "تراثي" },
-  { id: 3, name: "الحلبة الفلسطينية", price: 17, image: imgHalba, desc: "حلبة بزيت زيتون بكر، بنكهة حلبة وسمسم محمّص.", tag: "تراثي" },
-  { id: 4, name: "سينابون الفلسطيني", price: 19, image: imgSinabon2, desc: "لفائف قرفة هشة بصوص كريمي فاخر.", tag: "مخبوز" },
-  { id: 5, name: "كعك اساور بالتمر الفاخر", price: 16, image: imgKaak, desc: "كعك أساور نابلسي محشو تمر ملوكي وسمسم بلدي.", tag: "تمر" },
-  { id: 6, name: "معمول بالتمر الفاخر", price: 16, image: imgMaamoul, desc: "معمول هش يذوب بالفم، محشو تمر معطر بالهيل.", tag: "تمر" },
-  { id: 7, name: "بيتفور", price: 17, image: imgPetitfour, desc: "بيتفور زبدة فاخر بمربى مشمش طبيعي.", tag: "مخبوز" },
-  { id: 8, name: "مقروطة", price: 17, image: imgMaqruta, desc: "مقروطة محمّصة بالسمن البلدي وتمر مجدول.", tag: "تمر" },
-  { id: 9, name: "مبشوره", price: 16, image: imgMabshoura, desc: "مبشورة هشة بطبقات تفاح وقرفة.", tag: "مخبوز" },
-];
-
-const productCategories = ["الكل", "بارد", "تراثي", "مخبوز", "تمر"] as const;
-type PriceFilter = "all" | "up-to-16" | "17-to-18" | "19-plus";
-const priceFilters: { id: PriceFilter; label: string }[] = [
-  { id: "all", label: "كل الأسعار" },
-  { id: "up-to-16", label: "حتى 16 د.إ" },
-  { id: "17-to-18", label: "17–18 د.إ" },
-  { id: "19-plus", label: "19 د.إ فأكثر" },
-];
+const fallbackProducts: Product[] = catalogSeed.map((product, index) => ({
+  id: index + 1,
+  slug: product.slug,
+  name: product.name,
+  price: product.price,
+  image: product.image,
+  desc: product.description,
+  tag: product.tag,
+  collection: product.collection,
+}));
 
 const collections = [
   { id: 1, title: "حلويات باردة فلسطينية", count: "صنفان", image: imgLayaliLeb, accent: "#C9A86A" },
   { id: 2, title: "مخبوزات بالتمر الملوكي", count: "3 أصناف", image: imgKaak, accent: "#2D4A22" },
   { id: 3, title: "حلويات تراثية أصيلة", count: "صنفان", image: imgHalba, accent: "#5E1C1C" },
+  { id: 4, title: "التشكيلة العائلية", count: "6 أصناف", image: "/manus-storage/family-box_a8f9c1f4.webp", accent: "#C9A86A" },
 ];
 
 export default function App() {
+  const catalogQuery = trpc.catalog.list.useQuery(undefined, { retry: false });
+  const products: Product[] = catalogQuery.data?.map((product) => ({
+    id: product.id,
+    slug: product.slug,
+    name: product.name,
+    price: product.price,
+    image: product.image,
+    desc: product.description,
+    tag: product.tag,
+    collection: product.collection,
+  })) ?? fallbackProducts;
   const [screen, setScreen] = useState<Screen>("main");
   const [user, setUser] = useState<User | any>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState<(typeof productCategories)[number]>("الكل");
-  const [selectedPriceFilter, setSelectedPriceFilter] = useState<PriceFilter>("all");
   const [cart, setCart] = useState<{id:number, q:number}[]>(() => {
     const saved = localStorage.getItem("hekaya_cart_v3");
     return saved ? JSON.parse(saved) : [];
@@ -212,15 +215,6 @@ export default function App() {
 
   const cartCount = cart.reduce((s,c)=>s+c.q,0);
 
-  const filteredProducts = products.filter((product) => {
-    const matchesCategory = selectedCategory === "الكل" || product.tag === selectedCategory;
-    const matchesPrice = selectedPriceFilter === "all"
-      || (selectedPriceFilter === "up-to-16" && product.price <= 16)
-      || (selectedPriceFilter === "17-to-18" && product.price >= 17 && product.price <= 18)
-      || (selectedPriceFilter === "19-plus" && product.price >= 19);
-    return matchesCategory && matchesPrice;
-  });
-
   const toast = (msg: string) => {
     setShowToast(msg);
     setTimeout(()=>setShowToast(""), 3000);
@@ -326,6 +320,7 @@ export default function App() {
     setCart([]);
   };
 
+  // make sure to consider if you need authentication for certain routes
   return (
     <div dir="rtl" className="min-h-screen max-w-[100vw] bg-[#FFFBF5] text-[#1A0A05] antialiased overflow-x-hidden selection:bg-[#C9A86A]/30" style={{ fontFamily: "'Tajawal', system-ui, sans-serif" }}>
       <style>{`
@@ -444,7 +439,7 @@ export default function App() {
           {/* Collections */}
           <section className="mx-auto max-w-[1280px] px-4 py-8">
             <h2 className="text-[18px] font-black">مجموعاتنا الفلسطينية 🌿</h2>
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
               {collections.map(c => (
                 <div key={c.id} className="relative h-[160px] rounded-[20px] overflow-hidden shadow-[0_12px_32px_rgba(0,0,0,0.12)] group cursor-pointer" style={{ perspective: "1000px" }}>
                   <img src={c.image} alt={c.title} className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.06] transition-transform duration-700" />
@@ -463,33 +458,11 @@ export default function App() {
           <section id="products" className="mx-auto max-w-[1280px] px-4 pb-10">
             <div className="flex items-center justify-between">
               <h2 className="text-[18px] font-black">حلوياتنا الفلسطينية الأصيلة</h2>
-              <span className="text-[11px] text-[#5E1C1C]/60">{filteredProducts.length} من {products.length} أصناف • الطلب قريباً</span>
+              <span className="text-[11px] text-[#5E1C1C]/60">{products.length} أصناف • الطلب قريباً</span>
             </div>
-            <div className="mt-4 rounded-[18px] border border-[#C9A86A]/20 bg-white/80 p-3 sm:p-4 shadow-[0_6px_20px_rgba(26,10,5,0.04)]">
-              <div className="flex flex-col gap-3 sm:gap-2.5">
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
-                  <span className="shrink-0 text-[11px] font-black text-[#5E1C1C]">النوع</span>
-                  <div className="flex flex-wrap gap-2" role="group" aria-label="تصفية حسب نوع الحلوى">
-                    {productCategories.map((category) => {
-                      const active = selectedCategory === category;
-                      return <button key={category} type="button" aria-pressed={active} onClick={() => setSelectedCategory(category)} className={`min-h-[34px] rounded-full px-3.5 text-[11px] font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A86A] ${active ? "bg-[#5E1C1C] text-white shadow-[0_4px_12px_rgba(94,28,28,0.18)]" : "border border-[#5E1C1C]/10 bg-[#FFFBF5] text-[#5E1C1C]/75 hover:border-[#C9A86A]/60 hover:bg-[#C9A86A]/10"}`}>{category}</button>;
-                    })}
-                  </div>
-                </div>
-                <div className="h-px bg-[#5E1C1C]/[0.06]" />
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
-                  <span className="shrink-0 text-[11px] font-black text-[#5E1C1C]">السعر</span>
-                  <div className="flex flex-wrap gap-2" role="group" aria-label="تصفية حسب السعر">
-                    {priceFilters.map((filter) => {
-                      const active = selectedPriceFilter === filter.id;
-                      return <button key={filter.id} type="button" aria-pressed={active} onClick={() => setSelectedPriceFilter(filter.id)} className={`min-h-[34px] rounded-full px-3.5 text-[11px] font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A86A] ${active ? "bg-[#C9A86A] text-[#1A0A05] shadow-[0_4px_12px_rgba(201,168,106,0.2)]" : "border border-[#C9A86A]/25 bg-[#FFFBF5] text-[#5E1C1C]/75 hover:border-[#C9A86A]/70 hover:bg-[#C9A86A]/10"}`}>{filter.label}</button>;
-                    })}
-                  </div>
-                </div>
-              </div>
-            </div>
+            {catalogQuery.isError && <p role="status" className="mt-2 text-[11px] text-[#5E1C1C]/60">تعذر الاتصال بقاعدة البيانات؛ نعرض نسخة الكتالوج الاحتياطية.</p>}
             <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-              {filteredProducts.map(p => {
+              {products.map(p => {
                 const inCart = cart.find(c=>c.id===p.id);
                 return (
                   <div key={p.id} className="rounded-[18px] overflow-hidden bg-white border border-black/[0.04] shadow-[0_8px_24px_rgba(0,0,0,0.06)] hover:shadow-[0_16px_40px_rgba(0,0,0,0.12)] hover:-translate-y-1 transition-all group">
@@ -511,12 +484,6 @@ export default function App() {
                 );
               })}
             </div>
-            {filteredProducts.length === 0 && (
-              <div className="mt-4 rounded-[18px] border border-dashed border-[#C9A86A]/40 bg-white/60 px-4 py-8 text-center">
-                <p className="text-[14px] font-bold text-[#5E1C1C]">لا توجد أصناف تطابق هذين الخيارين</p>
-                <button type="button" onClick={() => { setSelectedCategory("الكل"); setSelectedPriceFilter("all"); }} className="mt-3 rounded-full bg-[#5E1C1C] px-4 py-2 text-[11px] font-bold text-white">عرض جميع الأصناف</button>
-              </div>
-            )}
 
             {/* Cart summary */}
             {cart.length>0 && defaultWhatsappNumber && (
