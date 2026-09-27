@@ -8,6 +8,7 @@ import { collection, addDoc, getDocs, serverTimestamp, doc, updateDoc, getDoc } 
 import { isValidE164PhoneNumber, normalizePhoneNumber } from "./lib/phoneAuth";
 const heroBg = "/manus-storage/hero_842b2022.webp";
 const cheesecakeCup = "/manus-storage/cheesecake_558e507c.jpeg";
+const loginDessertImage = "/manus-storage/cheesecake-box_2a61d9d0.webp";
 
 type Screen = "login" | "main" | "admin";
 type OrderMethod = "whatsapp" | "internal";
@@ -319,8 +320,8 @@ export default function App() {
                 <h1 className="mt-4 text-[28px] font-black text-white tracking-tight" style={{ fontFamily: "'Amiri', serif" }}>حكاية حلا</h1>
                 <p className="mt-1 text-[13px] text-[#C9A86A] font-bold tracking-[0.2em]">HEKAYET HALA</p>
 
-                <div className="mt-6 relative w-[140px] h-[140px]">
-                  <img src={cheesecakeCup} alt="تشيز كيك" className="w-full h-full object-cover rounded-[20px] shadow-[0_16px_40px_rgba(0,0,0,0.4)] border border-white/10" style={{ animation: "floatY 5s ease-in-out infinite" }} />
+                <div className="mt-6 relative w-[190px] h-[152px] sm:w-[210px] sm:h-[168px]">
+                  <img src={loginDessertImage} alt="بوكس تشيز كيك من حكاية حلا" onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = cheesecakeCup; }} className="w-full h-full object-cover rounded-[24px] shadow-[0_16px_40px_rgba(0,0,0,0.4)] border border-white/15" style={{ animation: "floatY 5s ease-in-out infinite" }} />
                   <div className="absolute -bottom-2 inset-x-4 h-[12px] bg-black/40 blur-[8px] rounded-full" />
                 </div>
 
