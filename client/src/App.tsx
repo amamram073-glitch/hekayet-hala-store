@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { trpc } from "./lib/trpc";
 import { catalogSeed } from "@shared/catalog";
 import { auth, db, isFirebaseConfigured, defaultWhatsappNumber } from "./firebase";
-import { onAuthStateChanged, signOut, signInWithEmailAndPassword, type User } from "firebase/auth";
+import { onAuthStateChanged, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPhoneNumber, RecaptchaVerifier, type ConfirmationResult, type User } from "firebase/auth";
 import { collection, addDoc, getDocs, serverTimestamp, doc, updateDoc, getDoc, onSnapshot, query, orderBy } from "firebase/firestore";
 import { isValidE164PhoneNumber, normalizePhoneNumber } from "./lib/phoneAuth";
 import { getCyclicSlideIndex } from "./lib/familySlider";
@@ -78,6 +78,10 @@ export default function App() {
   const [phoneLoginMessage, setPhoneLoginMessage] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
+  const [authMethod, setAuthMethod] = useState<"phone" | "email">("phone");
+  const [emailMode, setEmailMode] = useState<"login" | "signup">("login");
+  const [phoneConfirmation, setPhoneConfirmation] = useState<ConfirmationResult | null>(null);
+  const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
   const [tilt, setTilt] = useState({ rx: 2, ry: 0 });
   const [activeFamilySlide, setActiveFamilySlide] = useState(0);
   const [siteContent, setSiteContent] = useState({
@@ -182,21 +186,46 @@ export default function App() {
   }, [user?.uid, isAdminPreview]);
 
   const handlePhoneLoginPreparation = () => {
+    if (!auth || !isFirebaseConfigured) {
+      setPhoneLoginMessage("تسجيل الجوال يحتاج إعداد Firebase أولًا.");
+      return;
+    }
     if (!isValidE164PhoneNumber(loginPhone)) {
       setPhoneLoginMessage("أدخل رقم الجوال بصيغته الدولية مع مفتاح الدولة، مثل ‎+971501234567.");
       return;
     }
+    const verifier = recaptchaRef.current ?? new RecaptchaVerifier(auth, "recaptcha-container", { size: "invisible" });
+    recaptchaRef.current = verifier;
     setLoginPhone(normalizePhoneNumber(loginPhone));
-    setPhoneLoginMessage("واجهة الرقم ورمز التحقق جاهزة. لن يُرسل رمز SMS أو يُنشأ دخول حقيقي حتى يُربط مزود الرسائل.");
+    signInWithPhoneNumber(auth, normalizePhoneNumber(loginPhone), verifier)
+      .then((confirmation) => { setPhoneConfirmation(confirmation); setPhoneLoginMessage("تم إرسال رمز التحقق إلى جوالك."); })
+      .catch((error) => { console.error(error); verifier.clear(); recaptchaRef.current = null; setPhoneLoginMessage("تعذر إرسال رمز SMS. تحقق من إعدادات Phone Authentication."); });
   };
 
-  const handleAdminLogin = async () => {
+  const verifyPhoneCode = async () => {
+    if (!phoneConfirmation || verificationCode.length !== 6) {
+      setPhoneLoginMessage("أدخل رمز التحقق المكوّن من 6 أرقام.");
+      return;
+    }
+    try {
+      await phoneConfirmation.confirm(verificationCode);
+      setPhoneConfirmation(null);
+      setVerificationCode("");
+      setPhoneLoginMessage("");
+    } catch (error) {
+      console.error(error);
+      setPhoneLoginMessage("رمز التحقق غير صحيح أو انتهت صلاحيته.");
+    }
+  };
+
+  const handleEmailAuth = async () => {
     if (!auth || !isFirebaseConfigured || !adminEmail.trim() || adminPassword.length < 8) {
       setPhoneLoginMessage("أدخل بريد المشرف وكلمة مرور من 8 أحرف على الأقل.");
       return;
     }
     try {
-      await signInWithEmailAndPassword(auth, adminEmail.trim(), adminPassword);
+      if (emailMode === "signup") await createUserWithEmailAndPassword(auth, adminEmail.trim(), adminPassword);
+      else await signInWithEmailAndPassword(auth, adminEmail.trim(), adminPassword);
       setPhoneLoginMessage("");
     } catch (error) {
       console.error(error);
@@ -379,7 +408,7 @@ export default function App() {
           </div>
 
           <div className="relative z-10 w-full h-full flex flex-col items-center justify-center px-4">
-            <div className="mb-4 max-w-[400px] px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-500/25 text-amber-100 text-[11px] text-center leading-5">تسجيل الجوال عبر SMS قيد الإعداد. لن يُرسل رمز تحقق قبل ربط مزود الرسائل.</div>
+            <div className="mb-4 max-w-[400px] px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-500/25 text-amber-100 text-[11px] text-center leading-5">اختر الدخول برقم الجوال أو بالبريد الإلكتروني وكلمة المرور.</div>
 
             <div ref={null} className="w-full max-w-[400px] rounded-[28px] border border-[#C9A86A]/20 bg-white/[0.06] backdrop-blur-[24px] shadow-[0_24px_80px_rgba(0,0,0,0.6),inset_0_1px_0_rgba(255,255,255,0.12)] p-7 sm:p-8" style={{ transform: `perspective(1200px) rotateX(${tilt.rx}deg) rotateY(${tilt.ry}deg)`, transformStyle: "preserve-3d" }}>
               <div className="flex flex-col items-center text-center">
@@ -405,26 +434,31 @@ export default function App() {
                 <h2 className="mt-6 text-[20px] font-black text-white leading-tight">أهلاً بك في حكاية حلا</h2>
                 <p className="mt-2 text-[13px] leading-6 text-white/60">من قلب فلسطين إلى مائدتك<br/>وصفات جداتنا، بطعم الأصالة</p>
 
-                <div className="mt-7 w-full space-y-3 text-right">
-                  <label htmlFor="login-phone" className="block text-[12px] font-bold text-white/80">رقم الجوال</label>
-                  <input id="login-phone" dir="ltr" autoComplete="tel" inputMode="tel" value={loginPhone} onChange={(event) => { setLoginPhone(event.target.value); setPhoneLoginMessage(""); }} placeholder="+971 50 123 4567" className="w-full h-[48px] rounded-[14px] border border-white/15 bg-white/10 px-4 text-left text-white placeholder:text-white/35 outline-none focus:border-[#C9A86A] focus:ring-2 focus:ring-[#C9A86A]/20" />
-                  <button type="button" onClick={handlePhoneLoginPreparation} className="w-full h-[48px] rounded-[14px] bg-gradient-to-r from-[#C9A86A] to-[#8A6A2E] text-[#1A0A05] font-black text-[14px] shadow-[0_8px_24px_rgba(0,0,0,0.25)] active:scale-[0.98] transition-transform">متابعة برقم الجوال</button>
-                  <label htmlFor="verification-code" className="block pt-1 text-[12px] font-bold text-white/80">رمز التحقق</label>
-                  <input id="verification-code" dir="ltr" autoComplete="one-time-code" inputMode="numeric" maxLength={6} value={verificationCode} onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="• • • • • •" disabled className="w-full h-[48px] rounded-[14px] border border-white/10 bg-black/20 px-4 text-center tracking-[0.6em] text-white placeholder:text-white/25 disabled:cursor-not-allowed disabled:opacity-60" />
-                  <p className="text-[10px] leading-4 text-white/45">خانة الرمز جاهزة، وستُفعّل عند ربط إرسال SMS.</p>
-                  {phoneLoginMessage && <p role="status" className="rounded-xl border border-[#C9A86A]/20 bg-black/20 p-3 text-[11px] leading-5 text-[#F2DDAE]">{phoneLoginMessage}</p>}
+                <div className="mt-7 w-full text-right">
+                  <div className="mb-3 grid grid-cols-2 gap-2 rounded-xl bg-black/20 p-1">
+                    <button type="button" onClick={() => setAuthMethod("phone")} className={`rounded-lg py-2 text-[11px] font-bold ${authMethod === "phone" ? "bg-[#C9A86A] text-[#1A0A05]" : "text-white/70"}`}>رقم الجوال</button>
+                    <button type="button" onClick={() => setAuthMethod("email")} className={`rounded-lg py-2 text-[11px] font-bold ${authMethod === "email" ? "bg-[#C9A86A] text-[#1A0A05]" : "text-white/70"}`}>Gmail / البريد</button>
+                  </div>
+                  {authMethod === "phone" ? <div className="space-y-3">
+                    <label htmlFor="login-phone" className="block text-[12px] font-bold text-white/80">رقم الجوال</label>
+                    <input id="login-phone" dir="ltr" autoComplete="tel" inputMode="tel" value={loginPhone} onChange={(event) => { setLoginPhone(event.target.value); setPhoneLoginMessage(""); }} placeholder="+971 50 123 4567" className="w-full h-[48px] rounded-[14px] border border-white/15 bg-white/10 px-4 text-left text-white placeholder:text-white/35 outline-none focus:border-[#C9A86A] focus:ring-2 focus:ring-[#C9A86A]/20" />
+                    <button type="button" onClick={handlePhoneLoginPreparation} className="w-full h-[48px] rounded-[14px] bg-gradient-to-r from-[#C9A86A] to-[#8A6A2E] text-[#1A0A05] font-black text-[14px] shadow-[0_8px_24px_rgba(0,0,0,0.25)] active:scale-[0.98] transition-transform">إرسال رمز SMS</button>
+                    <label htmlFor="verification-code" className="block pt-1 text-[12px] font-bold text-white/80">رمز التحقق</label>
+                    <input id="verification-code" dir="ltr" autoComplete="one-time-code" inputMode="numeric" maxLength={6} value={verificationCode} onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="• • • • • •" disabled={!phoneConfirmation} className="w-full h-[48px] rounded-[14px] border border-white/10 bg-black/20 px-4 text-center tracking-[0.6em] text-white placeholder:text-white/25 disabled:cursor-not-allowed disabled:opacity-60" />
+                    <button type="button" onClick={verifyPhoneCode} disabled={!phoneConfirmation} className="w-full h-[44px] rounded-[12px] border border-[#C9A86A]/60 text-[#F2DDAE] font-bold text-[12px] disabled:opacity-40">تأكيد رمز الجوال</button>
+                  </div> : <div className="space-y-3">
+                    <input type="email" value={adminEmail} onChange={(event) => setAdminEmail(event.target.value)} placeholder="بريد Gmail أو البريد الإلكتروني" autoComplete="username" className="w-full h-[48px] rounded-[12px] border border-white/15 bg-white/10 px-3 text-left text-white placeholder:text-white/35 outline-none focus:border-[#C9A86A]" />
+                    <input type="password" value={adminPassword} onChange={(event) => setAdminPassword(event.target.value)} placeholder="كلمة المرور — 8 أحرف على الأقل" autoComplete={emailMode === "login" ? "current-password" : "new-password"} className="w-full h-[48px] rounded-[12px] border border-white/15 bg-white/10 px-3 text-left text-white placeholder:text-white/35 outline-none focus:border-[#C9A86A]" />
+                    <button type="button" onClick={handleEmailAuth} className="w-full h-[48px] rounded-[12px] bg-gradient-to-r from-[#C9A86A] to-[#8A6A2E] text-[#1A0A05] font-black text-[14px]">{emailMode === "login" ? "تسجيل الدخول بالبريد" : "إنشاء حساب بالبريد"}</button>
+                    <button type="button" onClick={() => setEmailMode(emailMode === "login" ? "signup" : "login")} className="w-full text-[11px] text-[#F2DDAE]">{emailMode === "login" ? "ليس لديك حساب؟ أنشئ حسابًا" : "لديك حساب؟ سجّل الدخول"}</button>
+                  </div>}
+                  <div id="recaptcha-container" />
+                  {phoneLoginMessage && <p role="status" className="mt-3 rounded-xl border border-[#C9A86A]/20 bg-black/20 p-3 text-[11px] leading-5 text-[#F2DDAE]">{phoneLoginMessage}</p>}
                 </div>
 
                 <div className="mt-3 w-full">
                   <button onClick={continueAsGuest} className="w-full h-[44px] rounded-[14px] border border-[#C9A86A]/40 bg-white/10 text-white font-bold text-[13px] hover:bg-white/15 transition-colors">متابعة التصفح كضيف</button>
                 </div>
-
-                {isFirebaseConfigured && <div className="mt-5 w-full border-t border-white/10 pt-5 text-right">
-                  <p className="mb-2 text-[11px] font-bold text-[#F2DDAE]">دخول الإدارة</p>
-                  <input type="email" value={adminEmail} onChange={(event) => setAdminEmail(event.target.value)} placeholder="البريد الإلكتروني" autoComplete="username" className="mb-2 w-full h-[44px] rounded-[12px] border border-white/15 bg-white/10 px-3 text-left text-white placeholder:text-white/35 outline-none focus:border-[#C9A86A]" />
-                  <input type="password" value={adminPassword} onChange={(event) => setAdminPassword(event.target.value)} placeholder="كلمة المرور" autoComplete="current-password" className="mb-2 w-full h-[44px] rounded-[12px] border border-white/15 bg-white/10 px-3 text-left text-white placeholder:text-white/35 outline-none focus:border-[#C9A86A]" />
-                  <button type="button" onClick={handleAdminLogin} className="w-full h-[44px] rounded-[12px] border border-[#C9A86A]/60 text-[#F2DDAE] font-bold text-[12px]">دخول المشرف</button>
-                </div>}
 
                 <p className="mt-5 text-[11px] leading-5 text-white/35 text-center">بالمتابعة، توافق على شروط حكاية حلا الفلسطينية<br/><span className="text-[#C9A86A]/60">وصفات أصلية • إرسال الطلب عبر واتساب</span></p>
               </div>
