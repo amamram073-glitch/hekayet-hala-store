@@ -156,11 +156,11 @@ export default function App() {
     supabase.auth.getSession().then(({ data }) => {
       if (!active) return;
       if (data.session?.user) { setUser(data.session.user); setScreen("main"); }
-      else if (!localStorage.getItem("hekaya_guest_session")) { setScreen("login"); }
+      else if (!isAdminPreview && !localStorage.getItem("hekaya_guest_session")) { setScreen("login"); }
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) { setUser(session.user); setScreen("main"); }
-      else if (!localStorage.getItem("hekaya_guest_session")) { setUser(null); setScreen("login"); }
+      else if (!isAdminPreview && !localStorage.getItem("hekaya_guest_session")) { setUser(null); setScreen("login"); }
     });
     return () => { active = false; listener.subscription.unsubscribe(); };
   }, []);
