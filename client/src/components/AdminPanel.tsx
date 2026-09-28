@@ -1,17 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  onSnapshot,
-  orderBy,
-  query,
-  setDoc,
-  updateDoc,
-} from "firebase/firestore";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
-import { db, storage, functions } from "../firebase";
+import { supabase, productImageBucket } from "../supabase";
+import { functions } from "../firebase";
 import { httpsCallable } from "firebase/functions";
 import SalesCharts from "./SalesCharts";
 
@@ -107,24 +96,22 @@ export default function AdminPanel({
   const lowStockThreshold = 5;
 
   useEffect(() => {
-    if (demoMode) {
-      setOrders(demoOrders);
-      return;
-    }
-    if (!db) return;
-    const productsQuery = query(collection(db, "products"), orderBy("id", "asc"));
-    const unsubscribeProducts = onSnapshot(productsQuery, (snapshot) => {
-      if (snapshot.empty) return;
-      setProducts(snapshot.docs.map((item) => ({ id: Number(item.data().id), ...item.data() } as Product)));
-    });
-    const unsubscribeContent = onSnapshot(doc(db, "siteContent", "main"), (snapshot) => {
-      if (snapshot.exists()) setContent({ ...defaultContent, ...(snapshot.data() as Partial<Content>) });
-    });
-    const ordersQuery = query(collection(db, "orders"), orderBy("date", "desc"));
-    const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
-      setOrders(snapshot.docs.map((item) => ({ ...item.data(), firestoreDocId: item.id } as unknown as Order)));
-    });
-    return () => { unsubscribeProducts(); unsubscribeContent(); unsubscribeOrders(); };
+    if (demoMode) { setOrders(demoOrders); return; }
+    let active = true;
+    const load = async () => {
+      const [{ data: productRows }, { data: contentRow }, { data: orderRows }] = await Promise.all([
+        supabase.from("products").select("*").order("id"),
+        supabase.from("site_content").select("content").eq("id", "main").maybeSingle(),
+        supabase.from("orders").select("*").order("created_at", { ascending: false }),
+      ]);
+      if (!active) return;
+      if (productRows) setProducts(productRows.map((row: any) => ({ ...row, desc: row.description })) as Product[]);
+      if (contentRow?.content) setContent({ ...defaultContent, ...(contentRow.content as Partial<Content>) });
+      if (orderRows) setOrders(orderRows.map((row: any) => ({ ...row, id: row.public_id, userName: row.user_name, customerPhone: row.customer_phone, date: row.created_at })) as Order[]);
+    };
+    load().catch((error) => { console.error(error); persistMessage("تعذر تحميل بيانات Supabase."); });
+    const channel = supabase.channel("admin-live").on("postgres_changes", { event: "*", schema: "public", table: "products" }, load).on("postgres_changes", { event: "*", schema: "public", table: "orders" }, load).on("postgres_changes", { event: "*", schema: "public", table: "site_content" }, load).subscribe();
+    return () => { active = false; void supabase.removeChannel(channel); };
   }, [demoMode]);
 
   useEffect(() => {
@@ -142,7 +129,7 @@ export default function AdminPanel({
   const saveProduct = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (demoMode) { persistMessage("المعاينة للعرض فقط — لن يتم حفظ التعديل."); return; }
-    if (!db || !editing) return;
+    if (!editing) return;
     const cleanName = editing.name.trim().slice(0, 120);
     const cleanDescription = editing.desc.trim().slice(0, 1000);
     if (!cleanName || editing.price < 0 || !editing.slug.trim()) {
@@ -151,13 +138,14 @@ export default function AdminPanel({
     }
     const data = { ...editing, name: cleanName, desc: cleanDescription, slug: editing.slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-") };
     try {
-      await setDoc(doc(db, "products", String(data.id)), data, { merge: true });
+      const { error } = await supabase.from("products").upsert({ id: data.id, slug: data.slug, name: data.name, price: data.price, image: data.image, description: data.desc, tag: data.tag, collection: data.collection, stock: getStock(data), active: true, updated_at: new Date().toISOString() });
+      if (error) throw error;
       setEditing(null);
       persistMessage("تم حفظ المنتج.");
       onSaved();
     } catch (error) {
       console.error(error);
-      persistMessage("تعذر حفظ المنتج. راجع قواعد Firestore.");
+      persistMessage("تعذر حفظ المنتج. تحقق من صلاحيات Supabase.");
     }
   };
 
@@ -169,9 +157,9 @@ export default function AdminPanel({
 
   const removeProduct = async (product: Product) => {
     if (demoMode) { persistMessage("المعاينة للعرض فقط — لا يمكن حذف المنتجات."); return; }
-    if (!db || !window.confirm(`حذف ${product.name}؟`)) return;
+    if (!window.confirm(`حذف ${product.name}؟`)) return;
     try {
-      await deleteDoc(doc(db, "products", String(product.id)));
+      const { error } = await supabase.from("products").delete().eq("id", product.id); if (error) throw error;
       persistMessage("تم حذف المنتج.");
       onSaved();
     } catch (error) {
@@ -182,16 +170,18 @@ export default function AdminPanel({
 
   const uploadImage = async (file: File) => {
     if (demoMode) { persistMessage("المعاينة للعرض فقط — لا يمكن رفع الصور."); return; }
-    if (!storage || !editing) return;
+    if (!editing) return;
     if (!/^image\/(jpeg|png|webp|avif)$/.test(file.type) || file.size > 5 * 1024 * 1024) {
       persistMessage("الصورة يجب أن تكون JPG أو PNG أو WEBP وبحجم لا يتجاوز 5MB.");
       return;
     }
     setUploading(true);
     try {
-      const storageRef = ref(storage, `products/${editing.id}-${crypto.randomUUID()}.${file.type.split("/")[1]}`);
-      await uploadBytes(storageRef, file, { contentType: file.type });
-      const url = await getDownloadURL(storageRef);
+      const path = `products/${editing.id}-${crypto.randomUUID()}.${file.type.split("/")[1]}`;
+      const { error: uploadError } = await supabase.storage.from(productImageBucket).upload(path, file, { contentType: file.type, upsert: true });
+      if (uploadError) throw uploadError;
+      const { data: publicData } = supabase.storage.from(productImageBucket).getPublicUrl(path);
+      const url = publicData.publicUrl;
       setEditing({ ...editing, image: url });
       persistMessage("تم رفع الصورة، اضغط حفظ المنتج.");
     } catch (error) {
@@ -204,14 +194,11 @@ export default function AdminPanel({
 
   const saveContent = async () => {
     if (demoMode) { persistMessage("المعاينة للعرض فقط — لن يتم حفظ المحتوى."); return; }
-    if (!db) return;
+
     try {
-      await setDoc(doc(db, "siteContent", "main"), {
-        ...content,
-        heroTitle: content.heroTitle.trim().slice(0, 160),
-        heroDescription: content.heroDescription.trim().slice(0, 500),
-        aboutText: content.aboutText.trim().slice(0, 3000),
-      }, { merge: true });
+      const safeContent = { ...content, heroTitle: content.heroTitle.trim().slice(0, 160), heroDescription: content.heroDescription.trim().slice(0, 500), aboutText: content.aboutText.trim().slice(0, 3000) };
+      const { error } = await supabase.from("site_content").upsert({ id: "main", content: safeContent, updated_at: new Date().toISOString() });
+      if (error) throw error;
       persistMessage("تم حفظ محتوى الموقع.");
     } catch (error) {
       console.error(error);
@@ -232,9 +219,9 @@ export default function AdminPanel({
 
   const changeOrderStatus = async (order: Order, status: string) => {
     if (demoMode) { persistMessage("المعاينة للعرض فقط — لن يتم تغيير حالة الطلب."); return; }
-    if (!db || !(order as Order & { firestoreDocId?: string }).firestoreDocId) return;
+    if (!order.id) return;
     try {
-      await updateDoc(doc(db, "orders", (order as Order & { firestoreDocId: string }).firestoreDocId), { status });
+      const { error } = await supabase.from("orders").update({ status, updated_at: new Date().toISOString() }).eq("public_id", order.id); if (error) throw error;
       persistMessage("تم تحديث حالة الطلب.");
     } catch (error) {
       console.error(error);
@@ -248,9 +235,9 @@ export default function AdminPanel({
     const stock = Math.max(0, Math.floor(nextStock));
     if (demoMode) { persistMessage("المعاينة للعرض فقط — لن يتم حفظ كمية المخزون."); return; }
     if (!can("inventory_write")) { persistMessage("لا تملك صلاحية تعديل المخزون."); return; }
-    if (!db) { persistMessage("إعداد Firebase غير مكتمل."); return; }
+
     try {
-      await setDoc(doc(db, "products", String(product.id)), { stock }, { merge: true });
+      const { error } = await supabase.from("products").update({ stock, updated_at: new Date().toISOString() }).eq("id", product.id); if (error) throw error;
       setProducts((current) => current.map((item) => item.id === product.id ? { ...item, stock } : item));
       persistMessage(`تم تحديث مخزون ${product.name}.`);
     } catch (error) {
@@ -289,7 +276,7 @@ export default function AdminPanel({
     <div className="min-h-screen bg-[#FFFBF5] p-4" dir="rtl">
       <div className="mx-auto max-w-[1100px]">
         <div className="flex items-center justify-between gap-3">
-          <div><h1 className="text-[22px] font-black">لوحة تحكم حكاية حلا</h1><p className="mt-1 text-[12px] text-[#5E1C1C]/60">{demoMode ? "معاينة للعرض فقط — البيانات تجريبية." : "التعديلات تُحفظ في Firestore وتظهر لجميع الزوار."}</p></div>
+          <div><h1 className="text-[22px] font-black">لوحة تحكم حكاية حلا</h1><p className="mt-1 text-[12px] text-[#5E1C1C]/60">{demoMode ? "معاينة للعرض فقط — البيانات تجريبية." : "التعديلات تُحفظ في Supabase وتظهر لجميع الزوار."}</p></div>
           <button onClick={onClose} className="rounded-full bg-[#1A0A05] px-4 py-2 text-[12px] font-bold text-white">العودة للمتجر</button>
         </div>
         {message && <div role="status" className="mt-4 rounded-xl border border-[#C9A86A]/30 bg-[#C9A86A]/10 p-3 text-[12px] font-bold">{message}</div>}

@@ -2,9 +2,9 @@
 import { useState, useEffect, useRef } from "react";
 import { trpc } from "./lib/trpc";
 import { catalogSeed } from "@shared/catalog";
-import { auth, db, isFirebaseConfigured, defaultWhatsappNumber } from "./firebase";
-import { onAuthStateChanged, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPhoneNumber, RecaptchaVerifier, type ConfirmationResult, type User } from "firebase/auth";
-import { collection, addDoc, getDocs, serverTimestamp, doc, updateDoc, getDoc, onSnapshot, query, orderBy } from "firebase/firestore";
+import { supabase, isSupabaseConfigured } from "./supabase";
+import type { User } from "@supabase/supabase-js";
+import { defaultWhatsappNumber } from "./firebase";
 import { isValidE164PhoneNumber, normalizePhoneNumber } from "./lib/phoneAuth";
 import { getCyclicSlideIndex } from "./lib/familySlider";
 import AdminPanel from "./components/AdminPanel";
@@ -52,8 +52,8 @@ export default function App() {
     tag: product.tag,
     collection: product.collection,
   })) ?? fallbackProducts;
-  const [firestoreProducts, setFirestoreProducts] = useState<Product[]>([]);
-  const products: Product[] = firestoreProducts.length > 0 ? firestoreProducts : databaseProducts;
+  const [supabaseProducts, setSupabaseProducts] = useState<Product[]>([]);
+  const products: Product[] = supabaseProducts.length > 0 ? supabaseProducts : databaseProducts;
   const familyProducts = products.filter((product) => product.collection === "family");
   const [screen, setScreen] = useState<Screen>(isAdminPreview ? "admin" : "main");
   const [user, setUser] = useState<User | any>(null);
@@ -68,7 +68,7 @@ export default function App() {
   const [showToast, setShowToast] = useState("");
   const [orderMethod, setOrderMethod] = useState<OrderMethod>(() => {
     const saved = localStorage.getItem("hekaya_order_method") as OrderMethod | null;
-    return saved === "internal" && !isFirebaseConfigured ? "whatsapp" : saved || "whatsapp";
+    return saved === "internal" && !isSupabaseConfigured ? "whatsapp" : saved || "whatsapp";
   });
   const [orders, setOrders] = useState<any[]>([]);
   const [customerName, setCustomerName] = useState("");
@@ -81,8 +81,7 @@ export default function App() {
   const [adminPassword, setAdminPassword] = useState("");
   const [authMethod, setAuthMethod] = useState<"phone" | "email">("phone");
   const [emailMode, setEmailMode] = useState<"login" | "signup">("login");
-  const [phoneConfirmation, setPhoneConfirmation] = useState<ConfirmationResult | null>(null);
-  const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
+  const [phoneConfirmation, setPhoneConfirmation] = useState(false);
   const [tilt, setTilt] = useState({ rx: 2, ry: 0 });
   const [activeFamilySlide, setActiveFamilySlide] = useState(0);
   const [siteContent, setSiteContent] = useState({
@@ -122,15 +121,19 @@ export default function App() {
   }, [screen, familyProducts.length]);
 
   useEffect(() => {
-    if (!db) return;
-    const productsQuery = query(collection(db, "products"), orderBy("id", "asc"));
-    const unsubscribeProducts = onSnapshot(productsQuery, (snapshot) => {
-      setFirestoreProducts(snapshot.docs.map((item) => ({ id: Number(item.data().id), ...item.data() } as Product)));
-    }, (error) => console.error("تعذر تحميل منتجات Firebase", error));
-    const unsubscribeContent = onSnapshot(doc(db, "siteContent", "main"), (snapshot) => {
-      if (snapshot.exists()) setSiteContent((current) => ({ ...current, ...snapshot.data() }));
-    }, (error) => console.error("تعذر تحميل محتوى الموقع", error));
-    return () => { unsubscribeProducts(); unsubscribeContent(); };
+    let active = true;
+    const load = async () => {
+      const [{ data: productRows }, { data: contentRow }] = await Promise.all([
+        supabase.from("products").select("*").eq("active", true).order("id"),
+        supabase.from("site_content").select("content").eq("id", "main").maybeSingle(),
+      ]);
+      if (!active) return;
+      if (productRows?.length) setSupabaseProducts(productRows.map((row: any) => ({ ...row, desc: row.description })) as Product[]);
+      if (contentRow?.content) setSiteContent((current) => ({ ...current, ...(contentRow.content as object) }));
+    };
+    load().catch((error) => console.error("تعذر تحميل بيانات Supabase", error));
+    const channel = supabase.channel("storefront-live").on("postgres_changes", { event: "*", schema: "public", table: "products" }, load).on("postgres_changes", { event: "*", schema: "public", table: "site_content" }, load).subscribe();
+    return () => { active = false; void supabase.removeChannel(channel); };
   }, []);
 
   const moveFamilySlide = (direction: -1 | 1) => {
@@ -147,101 +150,57 @@ export default function App() {
     localStorage.setItem("hekaya_order_method", orderMethod);
   }, [orderMethod]);
 
-  // Real Firebase Auth listener
+  // Supabase Auth listener
   useEffect(() => {
-    if (!isFirebaseConfigured || !auth) {
-      const guestSession = localStorage.getItem("hekaya_guest_session");
-      if (guestSession) {
-        setUser(JSON.parse(guestSession));
-        setScreen("main");
-      }
-      return;
-    }
-    const unsub = onAuthStateChanged(auth, (u) => {
-      if (u) {
-        setUser(u);
-        setScreen("main");
-      } else {
-        const guestSession = localStorage.getItem("hekaya_guest_session");
-        if (guestSession) {
-          setUser(JSON.parse(guestSession));
-          setScreen("main");
-        } else {
-          setUser(null);
-          setScreen("login");
-        }
-      }
+    let active = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (!active) return;
+      if (data.session?.user) { setUser(data.session.user); setScreen("main"); }
+      else if (!localStorage.getItem("hekaya_guest_session")) { setScreen("login"); }
     });
-    return () => unsub();
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) { setUser(session.user); setScreen("main"); }
+      else if (!localStorage.getItem("hekaya_guest_session")) { setUser(null); setScreen("login"); }
+    });
+    return () => { active = false; listener.subscription.unsubscribe(); };
   }, []);
 
   useEffect(() => {
     let active = true;
     setIsAdmin(isAdminPreview);
     setStaffPermissions([]);
-    if (isAdminPreview) return;
-    if (!isFirebaseConfigured || !db || !user?.uid || String(user.uid).startsWith("guest_")) return;
-    getDoc(doc(db, "admins", user.uid))
-      .then(async (snapshot) => {
-        if (!active) return;
-        if (snapshot.exists()) { setIsAdmin(true); return; }
-        const staffSnapshot = await getDoc(doc(db!, "staff", user.uid));
-        if (active && staffSnapshot.exists() && staffSnapshot.data().active === true) setStaffPermissions(Object.entries(staffSnapshot.data().permissions ?? {}).filter(([, value]) => value === true).map(([key]) => key));
-      })
-      .catch((error) => console.error("تعذر التحقق من صلاحية المشرف", error));
+    if (isAdminPreview || !user?.id || String(user.id).startsWith("guest_")) return;
+    supabase.from("staff_members").select("role, active, permissions").eq("id", user.id).maybeSingle().then(({ data, error }) => {
+      if (!active || error || !data?.active) return;
+      if (data.role === "owner") setIsAdmin(true);
+      setStaffPermissions(Object.entries(data.permissions ?? {}).filter(([, value]) => value === true).map(([key]) => key));
+    });
     return () => { active = false; };
-  }, [user?.uid, isAdminPreview]);
+  }, [user?.id, isAdminPreview]);
 
-  const handlePhoneLoginPreparation = () => {
-    if (!auth || !isFirebaseConfigured) {
-      setPhoneLoginMessage("تسجيل الجوال يحتاج إعداد Firebase أولًا.");
-      return;
-    }
-    if (!isValidE164PhoneNumber(loginPhone)) {
-      setPhoneLoginMessage("أدخل رقم الجوال بصيغته الدولية مع مفتاح الدولة، مثل ‎+971501234567.");
-      return;
-    }
-    const verifier = recaptchaRef.current ?? new RecaptchaVerifier(auth, "recaptcha-container", { size: "invisible" });
-    recaptchaRef.current = verifier;
-    setLoginPhone(normalizePhoneNumber(loginPhone));
-    signInWithPhoneNumber(auth, normalizePhoneNumber(loginPhone), verifier)
-      .then((confirmation) => { setPhoneConfirmation(confirmation); setPhoneLoginMessage("تم إرسال رمز التحقق إلى جوالك."); })
-      .catch((error) => { console.error(error); verifier.clear(); recaptchaRef.current = null; setPhoneLoginMessage("تعذر إرسال رمز SMS. تحقق من إعدادات Phone Authentication."); });
+  const handlePhoneLoginPreparation = async () => {
+    if (!isSupabaseConfigured) { setPhoneLoginMessage("إعداد Supabase غير مكتمل."); return; }
+    if (!isValidE164PhoneNumber(loginPhone)) { setPhoneLoginMessage("أدخل رقم الجوال بصيغته الدولية مثل +971501234567."); return; }
+    const { error } = await supabase.auth.signInWithOtp({ phone: normalizePhoneNumber(loginPhone) });
+    if (error) setPhoneLoginMessage("تسجيل الجوال يحتاج تفعيل Phone وربط Twilio في Supabase.");
+    else { setPhoneConfirmation(true); setPhoneLoginMessage("تم إرسال رمز التحقق."); }
   };
 
   const verifyPhoneCode = async () => {
-    if (!phoneConfirmation || verificationCode.length !== 6) {
-      setPhoneLoginMessage("أدخل رمز التحقق المكوّن من 6 أرقام.");
-      return;
-    }
-    try {
-      await phoneConfirmation.confirm(verificationCode);
-      setPhoneConfirmation(null);
-      setVerificationCode("");
-      setPhoneLoginMessage("");
-    } catch (error) {
-      console.error(error);
-      setPhoneLoginMessage("رمز التحقق غير صحيح أو انتهت صلاحيته.");
-    }
+    if (!phoneConfirmation || verificationCode.length !== 6) { setPhoneLoginMessage("أدخل رمز التحقق المكوّن من 6 أرقام."); return; }
+    const { error } = await supabase.auth.verifyOtp({ phone: normalizePhoneNumber(loginPhone), token: verificationCode, type: "sms" });
+    if (error) setPhoneLoginMessage("رمز التحقق غير صحيح أو انتهت صلاحيته.");
+    else { setPhoneConfirmation(false); setVerificationCode(""); setPhoneLoginMessage(""); }
   };
 
   const handleEmailAuth = async () => {
-    if (!auth || !isFirebaseConfigured || !adminEmail.trim() || adminPassword.length < 8) {
-      setPhoneLoginMessage("أدخل بريد المشرف وكلمة مرور من 8 أحرف على الأقل.");
-      return;
-    }
-    try {
-      if (emailMode === "signup") await createUserWithEmailAndPassword(auth, adminEmail.trim(), adminPassword);
-      else await signInWithEmailAndPassword(auth, adminEmail.trim(), adminPassword);
-      setPhoneLoginMessage("");
-    } catch (error) {
-      console.error(error);
-      setPhoneLoginMessage("تعذر تسجيل الدخول. تحقق من البيانات أو إعداد Firebase Authentication.");
-    }
+    if (!isSupabaseConfigured || !adminEmail.trim() || adminPassword.length < 8) { setPhoneLoginMessage("أدخل البريد وكلمة مرور من 8 أحرف على الأقل."); return; }
+    const result = emailMode === "signup" ? await supabase.auth.signUp({ email: adminEmail.trim(), password: adminPassword }) : await supabase.auth.signInWithPassword({ email: adminEmail.trim(), password: adminPassword });
+    if (result.error) setPhoneLoginMessage("تعذر تسجيل الدخول. تحقق من البريد وكلمة المرور."); else setPhoneLoginMessage("");
   };
 
   const handleLogout = async () => {
-    if (isFirebaseConfigured && auth) await signOut(auth);
+    await supabase.auth.signOut();
     localStorage.removeItem("hekaya_guest_session");
     setUser(null);
     setScreen("login");
@@ -284,45 +243,28 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (screen !== "admin" || !isAdmin || !db) return;
+    if (screen !== "admin" || (!isAdmin && staffPermissions.length === 0)) return;
     let active = true;
-    getDocs(collection(db, "orders"))
-      .then((snapshot) => {
-        if (!active) return;
-        const remoteOrders = snapshot.docs.map((orderDoc) => ({
-          ...orderDoc.data(),
-          firestoreDocId: orderDoc.id,
-        }));
-        remoteOrders.sort((a: any, b: any) => String(b.date ?? "").localeCompare(String(a.date ?? "")));
-        setOrders(remoteOrders);
-      })
-      .catch((error) => {
-        console.error(error);
-        toast("تعذر تحميل الطلبات. تحقق من تسجيل دخول المشرف وقواعد Firestore.");
-      });
-    return () => { active = false; };
-  }, [screen, isAdmin]);
+    const loadOrders = async () => {
+      const { data, error } = await supabase.from("orders").select("*").order("created_at", { ascending: false });
+      if (active && !error) setOrders((data ?? []).map((row: any) => ({ ...row, id: row.public_id, userName: row.user_name, customerPhone: row.customer_phone, date: row.created_at })));
+    };
+    loadOrders();
+    const channel = supabase.channel("orders-live").on("postgres_changes", { event: "*", schema: "public", table: "orders" }, loadOrders).subscribe();
+    return () => { active = false; void supabase.removeChannel(channel); };
+  }, [screen, isAdmin, staffPermissions.length]);
 
   const updateOrderStatus = async (order: any, status: string) => {
-    if (!isAdmin || !db || !order.firestoreDocId) {
-      toast("لا تملك صلاحية تعديل هذا الطلب.");
-      return;
-    }
-    try {
-      await updateDoc(doc(db, "orders", order.firestoreDocId), { status });
-      setOrders((prev) => prev.map((item) => item.firestoreDocId === order.firestoreDocId ? { ...item, status } : item));
-      toast("تم تحديث حالة الطلب.");
-    } catch (error) {
-      console.error(error);
-      toast("تعذر تحديث الحالة. تحقق من قواعد Firestore.");
-    }
+    if (!isAdmin || !order.id) { toast("لا تملك صلاحية تعديل هذا الطلب."); return; }
+    const { error } = await supabase.from("orders").update({ status, updated_at: new Date().toISOString() }).eq("public_id", order.id);
+    if (error) toast("تعذر تحديث حالة الطلب."); else { setOrders((prev) => prev.map((item) => item.id === order.id ? { ...item, status } : item)); toast("تم تحديث حالة الطلب."); }
   };
 
   // إرسال الطلب - واتساب أو داخلي
   const handleOrder = async () => {
     if (cart.length === 0) { toast("السلة فارغة"); return; }
-    if (orderMethod === "internal" && (!user || !isFirebaseConfigured || !auth?.currentUser || auth.currentUser.uid !== user.uid)) {
-      toast("الطلبات الداخلية تتطلب تسجيل دخول حقيقي وإعداد Firebase. استخدم واتساب أو أعد الإعداد.");
+    if (orderMethod === "internal" && (!user || !isSupabaseConfigured || String(user.id).startsWith("guest_"))) {
+      toast("الطلبات الداخلية تتطلب تسجيل دخول حقيقي عبر Supabase.");
       return;
     }
     if (orderMethod === "whatsapp" && !/^\d{8,15}$/.test(defaultWhatsappNumber)) {
@@ -358,15 +300,9 @@ export default function App() {
       status: "جديد"
     };
 
-    // حفظ في Firestore إذا مُعد
-    if (orderMethod === "internal" && isFirebaseConfigured && db && user) {
-      try {
-        await addDoc(collection(db, "orders"), { ...order, createdAt: serverTimestamp() });
-      } catch (e) {
-        console.error(e);
-        toast("تعذر حفظ الطلب. تحقق من إعدادات Firestore وقواعد الأمان، ولم يتم تأكيد الطلب.");
-        return;
-      }
+    if (orderMethod === "internal" && isSupabaseConfigured && user) {
+      const { error } = await supabase.from("orders").insert({ public_id: order.id, user_id: user.id, user_email: user.email ?? null, user_name: order.userName, customer_phone: order.customerPhone, delivery_note: order.deliveryNote, items: order.items, details: order.details, total: order.total, method: order.method, status: order.status });
+      if (error) { console.error(error); toast("تعذر حفظ الطلب في Supabase."); return; }
     }
 
     if (orderMethod === "internal") setOrders((prev) => [order, ...prev]);
@@ -635,7 +571,7 @@ export default function App() {
       )}
 
       {/* ADMIN / Orders screen - لوحة إدارة الطلبات */}
-      {screen === "admin" && (isAdmin || staffPermissions.length > 0) && (isFirebaseConfigured || isAdminPreview) && (
+      {screen === "admin" && (isAdmin || staffPermissions.length > 0) && (isSupabaseConfigured || isAdminPreview) && (
         <div className="min-h-screen bg-[#FFFBF5] p-4">
           {isAdminPreview && <div className="mx-auto mb-3 max-w-[1100px] rounded-xl border border-amber-300 bg-amber-50 p-3 text-center text-[12px] font-bold text-amber-900">وضع معاينة Admin للعرض فقط — البيانات تجريبية ولا تُحفظ أي تغييرات.</div>}
           <AdminPanel initialProducts={products} onClose={() => setScreen("main")} onSaved={() => catalogQuery.refetch()} demoMode={isAdminPreview} isOwner={isAdmin} permissions={staffPermissions} />
