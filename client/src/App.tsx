@@ -6,6 +6,7 @@ import { supabase, isSupabaseConfigured } from "./supabase";
 import type { User } from "@supabase/supabase-js";
 import { defaultWhatsappNumber } from "./firebase";
 import { getCyclicSlideIndex } from "./lib/familySlider";
+import { defaultWeeklySchedule, isStoreOpenNow, type WeeklySchedule } from "./lib/storeHours";
 import AdminPanel from "./components/AdminPanel";
 const resolveImage = (image: string) => image.startsWith("/manus-storage/")
   ? `${import.meta.env.BASE_URL}images/${(image.split("/").pop() ?? "").replace(/\.(jpeg|jpg|png)$/i, ".webp")}`
@@ -83,6 +84,7 @@ export default function App() {
   const [siteContent, setSiteContent] = useState({
     storeOpen: true,
     closedMessage: "عذرًا، متجر حكاية حلا مغلق حاليًا. سنعود لاستقبال طلباتكم قريبًا.",
+    weeklySchedule: defaultWeeklySchedule as WeeklySchedule,
     heroTitle: "حلويات فلسطينية أصيلة",
     heroDescription: "من قلب فلسطين إلى مائدتك، وصفات جداتنا بطعم الأصالة",
     heroBadge: "حلويات فلسطينية",
@@ -96,6 +98,8 @@ export default function App() {
     returnPolicy: "يرجى التواصل معنا فورًا عند وجود أي مشكلة في الطلب.",
     privacyPolicy: "نستخدم بيانات التواصل لإتمام الطلب فقط.",
   });
+  const [scheduleTick, setScheduleTick] = useState(0);
+  const storeIsOpen = isStoreOpenNow(siteContent.storeOpen, siteContent.weeklySchedule) && scheduleTick >= 0;
   const currentFamilyProduct = familyProducts[activeFamilySlide] ?? familyProducts[0];
 
   // Preload only the first-screen artwork. Product cards are lazy-loaded below
@@ -103,6 +107,11 @@ export default function App() {
   useEffect(() => {
     const urls = [heroBg, cheesecakeCup, loginDessertImage];
     urls.forEach((url) => { const image = new Image(); image.decoding = "async"; image.src = url; });
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setScheduleTick((tick) => tick + 1), 60_000);
+    return () => window.clearInterval(timer);
   }, []);
 
   // Mouse parallax for 3D
@@ -261,7 +270,7 @@ export default function App() {
 
   // إرسال الطلب - واتساب أو داخلي
   const handleOrder = async () => {
-    if (siteContent.storeOpen === false) { toast(siteContent.closedMessage || "المتجر مغلق حاليًا."); return; }
+    if (!storeIsOpen) { toast(siteContent.closedMessage || "المتجر مغلق حاليًا."); return; }
     if (cart.length === 0) { toast("السلة فارغة"); return; }
     if (orderMethod === "internal" && (!user || !isSupabaseConfigured || String(user.id).startsWith("guest_"))) {
       toast("الطلبات الداخلية تتطلب تسجيل دخول حقيقي عبر Supabase.");
@@ -407,7 +416,7 @@ export default function App() {
       {/* MAIN SCREEN */}
       {screen === "main" && (
         <div className="relative min-h-screen">
-          {siteContent.storeOpen === false && <div role="status" className="sticky top-0 z-50 border-b border-[#C9A86A]/40 bg-[#3B1710] px-4 py-3 text-center text-[12px] font-bold text-[#F2DDAE]">{siteContent.closedMessage || "عذرًا، المتجر مغلق حاليًا."}</div>}
+          {!storeIsOpen && <div role="status" className="sticky top-0 z-50 border-b border-[#C9A86A]/40 bg-[#3B1710] px-4 py-3 text-center text-[12px] font-bold text-[#F2DDAE]">{siteContent.closedMessage || "عذرًا، المتجر مغلق حاليًا."}</div>}
           {/* Header */}
           <header className="absolute inset-x-0 top-0 z-30 text-white">
             <div className="mx-auto max-w-[1280px] px-4 h-[64px] flex items-center justify-between">

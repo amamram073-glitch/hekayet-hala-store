@@ -65,10 +65,37 @@ as $$
   );
 $$;
 
+create or replace function public.is_store_open()
+returns boolean language plpgsql stable security definer set search_path = public
+as $$
+declare
+  settings jsonb;
+  today jsonb;
+  day_key text;
+  current_minutes integer;
+  start_minutes integer;
+  end_minutes integer;
+begin
+  select coalesce(content, '{}'::jsonb) into settings from public.site_content where id = 'main';
+  if coalesce((settings ->> 'storeOpen')::boolean, true) = false then return false; end if;
+  if jsonb_typeof(settings -> 'weeklySchedule') is distinct from 'object' then return true; end if;
+  day_key := extract(dow from timezone('Asia/Dubai', now()))::integer::text;
+  today := settings -> 'weeklySchedule' -> day_key;
+  if today is null or coalesce((today ->> 'enabled')::boolean, true) = false then return false; end if;
+  start_minutes := split_part(today ->> 'start', ':', 1)::integer * 60 + split_part(today ->> 'start', ':', 2)::integer;
+  end_minutes := split_part(today ->> 'end', ':', 1)::integer * 60 + split_part(today ->> 'end', ':', 2)::integer;
+  current_minutes := extract(hour from timezone('Asia/Dubai', now()))::integer * 60 + extract(minute from timezone('Asia/Dubai', now()))::integer;
+  if start_minutes = end_minutes then return false; end if;
+  return case when end_minutes > start_minutes then current_minutes >= start_minutes and current_minutes < end_minutes else current_minutes >= start_minutes or current_minutes < end_minutes end;
+exception when others then return false;
+end;
+$$;
+
 revoke all on function public.is_owner() from public;
 revoke all on function public.has_permission(text) from public;
 grant execute on function public.is_owner() to authenticated;
 grant execute on function public.has_permission(text) to authenticated;
+grant execute on function public.is_store_open() to authenticated;
 
 alter table public.staff_members enable row level security;
 alter table public.products enable row level security;
@@ -91,7 +118,7 @@ drop policy if exists content_write on public.site_content;
 create policy content_write on public.site_content for all to authenticated using (public.has_permission('content_write')) with check (public.has_permission('content_write'));
 
 drop policy if exists orders_customer_create on public.orders;
-create policy orders_customer_create on public.orders for insert to authenticated with check (user_id = auth.uid());
+create policy orders_customer_create on public.orders for insert to authenticated with check (user_id = auth.uid() and public.is_store_open());
 drop policy if exists orders_read on public.orders;
 create policy orders_read on public.orders for select to authenticated using (public.has_permission('orders_read') or user_id = auth.uid());
 drop policy if exists orders_update on public.orders;
