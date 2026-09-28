@@ -8,8 +8,9 @@ import { defaultWhatsappNumber } from "./firebase";
 import { isValidE164PhoneNumber, normalizePhoneNumber } from "./lib/phoneAuth";
 import { getCyclicSlideIndex } from "./lib/familySlider";
 import AdminPanel from "./components/AdminPanel";
-const storageOrigin = import.meta.env.VITE_MANUS_STORAGE_ORIGIN ?? "";
-const resolveImage = (image: string) => image.startsWith("/manus-storage/") ? `${storageOrigin}${image}` : image;
+const resolveImage = (image: string) => image.startsWith("/manus-storage/")
+  ? `${import.meta.env.BASE_URL}images/${image.split("/").pop()}`
+  : image;
 const heroBg = resolveImage("/manus-storage/hero_842b2022.webp");
 const cheesecakeCup = resolveImage("/manus-storage/cheesecake_558e507c.jpeg");
 const loginDessertImage = resolveImage("/manus-storage/cheesecake-box_2a61d9d0.webp");
@@ -99,6 +100,14 @@ export default function App() {
     privacyPolicy: "نستخدم بيانات التواصل لإتمام الطلب فقط.",
   });
   const currentFamilyProduct = familyProducts[activeFamilySlide] ?? familyProducts[0];
+
+  // Images are bundled with the storefront so the first screen does not wait
+  // for the legacy Manus storage host. Preload the hero and catalog images as
+  // soon as the app starts, while the browser still paints the login screen.
+  useEffect(() => {
+    const urls = [heroBg, cheesecakeCup, loginDessertImage, ...fallbackProducts.map((product) => product.image)];
+    urls.forEach((url) => { const image = new Image(); image.decoding = "async"; image.src = url; });
+  }, []);
 
   // Mouse parallax for 3D
   useEffect(() => {
