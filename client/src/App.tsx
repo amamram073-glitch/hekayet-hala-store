@@ -81,6 +81,8 @@ export default function App() {
   const [tilt, setTilt] = useState({ rx: 2, ry: 0 });
   const [activeFamilySlide, setActiveFamilySlide] = useState(0);
   const [siteContent, setSiteContent] = useState({
+    storeOpen: true,
+    closedMessage: "عذرًا، متجر حكاية حلا مغلق حاليًا. سنعود لاستقبال طلباتكم قريبًا.",
     heroTitle: "حلويات فلسطينية أصيلة",
     heroDescription: "من قلب فلسطين إلى مائدتك، وصفات جداتنا بطعم الأصالة",
     heroBadge: "حلويات فلسطينية",
@@ -259,6 +261,7 @@ export default function App() {
 
   // إرسال الطلب - واتساب أو داخلي
   const handleOrder = async () => {
+    if (siteContent.storeOpen === false) { toast(siteContent.closedMessage || "المتجر مغلق حاليًا."); return; }
     if (cart.length === 0) { toast("السلة فارغة"); return; }
     if (orderMethod === "internal" && (!user || !isSupabaseConfigured || String(user.id).startsWith("guest_"))) {
       toast("الطلبات الداخلية تتطلب تسجيل دخول حقيقي عبر Supabase.");
@@ -404,6 +407,7 @@ export default function App() {
       {/* MAIN SCREEN */}
       {screen === "main" && (
         <div className="relative min-h-screen">
+          {siteContent.storeOpen === false && <div role="status" className="sticky top-0 z-50 border-b border-[#C9A86A]/40 bg-[#3B1710] px-4 py-3 text-center text-[12px] font-bold text-[#F2DDAE]">{siteContent.closedMessage || "عذرًا، المتجر مغلق حاليًا."}</div>}
           {/* Header */}
           <header className="absolute inset-x-0 top-0 z-30 text-white">
             <div className="mx-auto max-w-[1280px] px-4 h-[64px] flex items-center justify-between">
