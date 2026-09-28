@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase, productImageBucket } from "../supabase";
-import { functions } from "../firebase";
 import { httpsCallable } from "firebase/functions";
 import SalesCharts from "./SalesCharts";
 
@@ -42,7 +41,7 @@ type Content = {
   privacyPolicy: string;
 };
 
-type StaffMember = { uid: string; email: string; displayName: string; active: boolean; permissions: Record<string, boolean> };
+type StaffMember = { uid: string; email: string; displayName: string; role?: string; active: boolean; permissions: Record<string, boolean> };
 const permissionOptions = [
   ["orders_read", "مشاهدة الطلبات"], ["orders_update", "تحديث حالات الطلبات"], ["inventory_read", "مشاهدة المخزون"], ["inventory_write", "تعديل المخزون"],
   ["products_write", "إدارة المنتجات"], ["content_write", "تعديل محتوى الموقع"], ["reports_read", "مشاهدة التقارير"], ["staff_manage", "إدارة الموظفين"],
@@ -115,10 +114,13 @@ export default function AdminPanel({
   }, [demoMode]);
 
   useEffect(() => {
-    if (!isOwner || demoMode || !functions) return;
-    httpsCallable(functions, "listStaff")()
-      .then((result) => setStaff(result.data as StaffMember[]))
-      .catch((error) => { console.error(error); persistMessage("تعذر تحميل الموظفين."); });
+    if (!isOwner || demoMode) return;
+    supabase.functions.invoke("staff-admin", { body: { action: "list" } })
+      .then(({ data, error }) => {
+        if (error) throw error;
+        setStaff(((data?.staff ?? []) as any[]).map((item) => ({ uid: item.id, email: item.email, displayName: item.display_name, role: item.role, active: item.active, permissions: item.permissions ?? {} })));
+      })
+      .catch((error) => { console.error(error); persistMessage("تعذر تحميل الموظفين. تأكد أن حسابك Owner."); });
   }, [isOwner, demoMode]);
 
   const persistMessage = (text: string) => {
@@ -249,26 +251,27 @@ export default function AdminPanel({
   const newOrdersCount = orders.filter((order) => (order.status || "جديد") === "جديد").length;
 
   const createStaff = async () => {
-    if (!functions || !newStaff.email || newStaff.password.length < 8 || !newStaff.displayName.trim()) { persistMessage("أدخل اسم الموظف والبريد وكلمة مرور من 8 أحرف على الأقل."); return; }
+    if (!newStaff.email || newStaff.password.length < 8 || !newStaff.displayName.trim()) { persistMessage("أدخل اسم الموظف والبريد وكلمة مرور من 8 أحرف على الأقل."); return; }
     try {
-      await httpsCallable(functions, "createStaffUser")(newStaff);
-      const result = await httpsCallable(functions, "listStaff")();
-      setStaff(result.data as StaffMember[]);
+      const { error } = await supabase.functions.invoke("staff-admin", { body: { action: "create", ...newStaff } });
+      if (error) throw error;
+      const { data, error: listError } = await supabase.functions.invoke("staff-admin", { body: { action: "list" } });
+      if (listError) throw listError;
+      setStaff(((data?.staff ?? []) as any[]).map((item) => ({ uid: item.id, email: item.email, displayName: item.display_name, role: item.role, active: item.active, permissions: item.permissions ?? {} })));
       setNewStaff({ email: "", password: "", displayName: "", permissions: { orders_read: true, inventory_read: true } });
       persistMessage("تم إنشاء حساب الموظف وصلاحياته.");
-    } catch (error) { console.error(error); persistMessage("تعذر إنشاء الموظف. تحقق من صلاحية المسؤول ومن أن البريد غير مستخدم."); }
+    } catch (error) { console.error(error); persistMessage("تعذر إنشاء الموظف. يجب أن يكون حسابك Owner والبريد غير مستخدم."); }
   };
 
   const updateStaff = async (member: StaffMember, patch: Partial<StaffMember>) => {
-    if (!functions) return;
     const next = { ...member, ...patch };
-    try { await httpsCallable(functions, "updateStaffUser")({ uid: member.uid, displayName: next.displayName, active: next.active, permissions: next.permissions }); setStaff((current) => current.map((item) => item.uid === member.uid ? next : item)); persistMessage("تم تحديث الموظف."); }
+    try { const { error } = await supabase.functions.invoke("staff-admin", { body: { action: "update", uid: member.uid, displayName: next.displayName, active: next.active, permissions: next.permissions } }); if (error) throw error; setStaff((current) => current.map((item) => item.uid === member.uid ? next : item)); persistMessage("تم تحديث الموظف."); }
     catch (error) { console.error(error); persistMessage("تعذر تحديث صلاحيات الموظف."); }
   };
 
   const deleteStaff = async (member: StaffMember) => {
-    if (!functions || !window.confirm(`حذف حساب ${member.displayName}؟`)) return;
-    try { await httpsCallable(functions, "deleteStaffUser")({ uid: member.uid }); setStaff((current) => current.filter((item) => item.uid !== member.uid)); persistMessage("تم حذف حساب الموظف."); }
+    if (!window.confirm(`حذف حساب ${member.displayName}؟`)) return;
+    try { const { error } = await supabase.functions.invoke("staff-admin", { body: { action: "delete", uid: member.uid } }); if (error) throw error; setStaff((current) => current.filter((item) => item.uid !== member.uid)); persistMessage("تم حذف حساب الموظف."); }
     catch (error) { console.error(error); persistMessage("تعذر حذف حساب الموظف."); }
   };
 
