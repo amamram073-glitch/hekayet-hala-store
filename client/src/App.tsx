@@ -79,7 +79,7 @@ export default function App() {
   const [phoneLoginMessage, setPhoneLoginMessage] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
-  const [authMethod, setAuthMethod] = useState<"phone" | "email">("phone");
+  const [authMethod, setAuthMethod] = useState<"phone" | "email">(() => new URLSearchParams(window.location.search).get("auth") === "email" ? "email" : "phone");
   const [emailMode, setEmailMode] = useState<"login" | "signup">("login");
   const [phoneConfirmation, setPhoneConfirmation] = useState(false);
   const [tilt, setTilt] = useState({ rx: 2, ry: 0 });
@@ -195,8 +195,17 @@ export default function App() {
 
   const handleEmailAuth = async () => {
     if (!isSupabaseConfigured || !adminEmail.trim() || adminPassword.length < 8) { setPhoneLoginMessage("أدخل البريد وكلمة مرور من 8 أحرف على الأقل."); return; }
-    const result = emailMode === "signup" ? await supabase.auth.signUp({ email: adminEmail.trim(), password: adminPassword }) : await supabase.auth.signInWithPassword({ email: adminEmail.trim(), password: adminPassword });
-    if (result.error) setPhoneLoginMessage("تعذر تسجيل الدخول. تحقق من البريد وكلمة المرور."); else setPhoneLoginMessage("");
+    const result = emailMode === "signup"
+      ? await supabase.auth.signUp({ email: adminEmail.trim(), password: adminPassword, options: { data: { display_name: adminEmail.trim().split("@")[0] } } })
+      : await supabase.auth.signInWithPassword({ email: adminEmail.trim(), password: adminPassword });
+    if (result.error) {
+      const message = result.error.message.toLowerCase().includes("already registered") ? "هذا البريد مسجل مسبقًا. اختر تسجيل الدخول بدل إنشاء حساب." : result.error.message.toLowerCase().includes("email not confirmed") ? "افتح رسالة التأكيد في بريدك الإلكتروني أولًا، ثم سجّل الدخول." : `تعذر إنشاء الحساب: ${result.error.message}`;
+      setPhoneLoginMessage(message);
+    } else if (emailMode === "signup" && !result.data.session) {
+      setPhoneLoginMessage("تم إنشاء الحساب. افتح رسالة التأكيد في بريدك الإلكتروني، ثم اضغط تسجيل الدخول.");
+    } else {
+      setPhoneLoginMessage("");
+    }
   };
 
   const handleLogout = async () => {
