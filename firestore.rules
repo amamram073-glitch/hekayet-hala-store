@@ -5,25 +5,38 @@ service cloud.firestore {
     function isAdmin() {
       return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
+    function isStaff() {
+      return signedIn() && exists(/databases/$(database)/documents/staff/$(request.auth.uid)) && get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.active == true;
+    }
+    function hasPermission(permission) {
+      return isAdmin() || (isStaff() && get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.permissions[permission] == true);
+    }
 
     match /products/{productId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if hasPermission("products_write") || hasPermission("inventory_write");
     }
 
     match /siteContent/{contentId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if hasPermission("content_write");
     }
 
     match /orders/{orderId} {
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
-      allow read, update, delete: if isAdmin();
+      allow read: if hasPermission("orders_read");
+      allow update: if hasPermission("orders_update");
+      allow delete: if isAdmin();
     }
 
     match /admins/{adminId} {
       allow read: if signedIn() && request.auth.uid == adminId;
       allow write: if false;
+    }
+
+    match /staff/{staffId} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == staffId);
+      allow write: if isAdmin();
     }
 
     match /{document=**} {

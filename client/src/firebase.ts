@@ -2,6 +2,7 @@ import { initializeApp, type FirebaseApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, OAuthProvider, type Auth } from "firebase/auth";
 import { getFirestore, type Firestore } from "firebase/firestore";
 import { getStorage, type FirebaseStorage } from "firebase/storage";
+import { getFunctions, type Functions } from "firebase/functions";
 
 const env = import.meta.env;
 const firebaseConfig = {
@@ -27,6 +28,7 @@ let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 let db: Firestore | null = null;
 let storage: FirebaseStorage | null = null;
+let functions: Functions | null = null;
 let googleProvider: GoogleAuthProvider | null = null;
 let appleProvider: OAuthProvider | null = null;
 
@@ -36,6 +38,7 @@ if (isFirebaseConfigured) {
     auth = getAuth(app);
     db = getFirestore(app);
     storage = getStorage(app);
+    functions = getFunctions(app, "europe-west1");
     googleProvider = new GoogleAuthProvider();
     appleProvider = new OAuthProvider("apple.com");
   } catch (error) {
@@ -48,7 +51,7 @@ if (!firebaseReady) {
   console.info("Firebase غير مهيأ: ستظل المصادقة والطلبات الداخلية معطلة، ويمكن استخدام الطلب عبر واتساب كضيف.");
 }
 
-export { auth, db, storage, googleProvider, appleProvider, firebaseReady as isFirebaseConfigured };
+export { auth, db, storage, functions, googleProvider, appleProvider, firebaseReady as isFirebaseConfigured };
 export const adminEmails = (env.VITE_ADMIN_EMAILS ?? "")
   .split(",")
   .map((email: string) => email.trim().toLowerCase())

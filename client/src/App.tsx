@@ -58,6 +58,7 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>(isAdminPreview ? "admin" : "main");
   const [user, setUser] = useState<User | any>(null);
   const [isAdmin, setIsAdmin] = useState(isAdminPreview);
+  const [staffPermissions, setStaffPermissions] = useState<string[]>([]);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [cart, setCart] = useState<{id:number, q:number}[]>(() => {
@@ -177,10 +178,16 @@ export default function App() {
   useEffect(() => {
     let active = true;
     setIsAdmin(isAdminPreview);
+    setStaffPermissions([]);
     if (isAdminPreview) return;
     if (!isFirebaseConfigured || !db || !user?.uid || String(user.uid).startsWith("guest_")) return;
     getDoc(doc(db, "admins", user.uid))
-      .then((snapshot) => { if (active) setIsAdmin(snapshot.exists()); })
+      .then(async (snapshot) => {
+        if (!active) return;
+        if (snapshot.exists()) { setIsAdmin(true); return; }
+        const staffSnapshot = await getDoc(doc(db!, "staff", user.uid));
+        if (active && staffSnapshot.exists() && staffSnapshot.data().active === true) setStaffPermissions(Object.entries(staffSnapshot.data().permissions ?? {}).filter(([, value]) => value === true).map(([key]) => key));
+      })
       .catch((error) => console.error("تعذر التحقق من صلاحية المشرف", error));
     return () => { active = false; };
   }, [user?.uid, isAdminPreview]);
@@ -489,7 +496,7 @@ export default function App() {
               <div className="flex items-center gap-3">
                 {!user && <button onClick={() => setScreen("login")} className="px-3 py-1.5 rounded-full bg-[#1A0A05]/55 backdrop-blur border border-[#C9A86A]/50 text-white text-[11px] font-bold">تسجيل الدخول</button>}
                 {!defaultWhatsappNumber && <span className="px-3 py-1.5 rounded-full bg-[#1A0A05]/45 backdrop-blur border border-white/20 text-white text-[11px] font-bold">كتالوج المنتجات</span>}
-                {isAdmin && <button onClick={()=>setScreen("admin")} className="relative px-3 py-1.5 rounded-full bg-[#1A0A05]/45 backdrop-blur border border-white/20 text-white text-[12px] font-bold">إدارة الطلبات {orders.length>0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#C1272D] text-white text-[9px] rounded-full grid place-items-center">{orders.length}</span>}</button>}
+                {(isAdmin || staffPermissions.length > 0) && <button onClick={()=>setScreen("admin")} className="relative px-3 py-1.5 rounded-full bg-[#1A0A05]/45 backdrop-blur border border-white/20 text-white text-[12px] font-bold">لوحة الموظف {orders.length>0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#C1272D] text-white text-[9px] rounded-full grid place-items-center">{orders.length}</span>}</button>}
                 {defaultWhatsappNumber && <div className="relative">
                   <button onClick={()=>toast(`السلة: ${cartCount} منتجات - ${cartTotal} د.إ`)} className="px-3 py-1.5 rounded-full bg-[#1A0A05]/55 backdrop-blur border border-white/20 text-white text-[12px] font-bold">السلة • {cartCount}</button>
                 </div>}
@@ -628,10 +635,10 @@ export default function App() {
       )}
 
       {/* ADMIN / Orders screen - لوحة إدارة الطلبات */}
-      {screen === "admin" && isAdmin && (isFirebaseConfigured || isAdminPreview) && (
+      {screen === "admin" && (isAdmin || staffPermissions.length > 0) && (isFirebaseConfigured || isAdminPreview) && (
         <div className="min-h-screen bg-[#FFFBF5] p-4">
           {isAdminPreview && <div className="mx-auto mb-3 max-w-[1100px] rounded-xl border border-amber-300 bg-amber-50 p-3 text-center text-[12px] font-bold text-amber-900">وضع معاينة Admin للعرض فقط — البيانات تجريبية ولا تُحفظ أي تغييرات.</div>}
-          <AdminPanel initialProducts={products} onClose={() => setScreen("main")} onSaved={() => catalogQuery.refetch()} demoMode={isAdminPreview} />
+          <AdminPanel initialProducts={products} onClose={() => setScreen("main")} onSaved={() => catalogQuery.refetch()} demoMode={isAdminPreview} isOwner={isAdmin} permissions={staffPermissions} />
           <div className="mx-auto max-w-[900px]">
             <div className="flex items-center justify-between">
               <h1 className="text-[20px] font-black">لوحة إدارة الطلبات {orderMethod==="whatsapp" ? "(واتساب)" : "(داخلي)"}</h1>
