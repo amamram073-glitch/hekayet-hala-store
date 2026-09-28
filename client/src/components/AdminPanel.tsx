@@ -23,6 +23,7 @@ type Product = {
   desc: string;
   tag: string;
   collection: "classic" | "family";
+  stock?: number;
 };
 
 type Order = {
@@ -89,6 +90,7 @@ export default function AdminPanel({
   const [orders, setOrders] = useState<Order[]>([]);
   const [message, setMessage] = useState("");
   const [uploading, setUploading] = useState(false);
+  const lowStockThreshold = 5;
 
   useEffect(() => {
     if (demoMode) {
@@ -219,6 +221,24 @@ export default function AdminPanel({
     }
   };
 
+  const getStock = (product: Product) => Number.isFinite(Number(product.stock)) ? Number(product.stock) : 20;
+
+  const updateStock = async (product: Product, nextStock: number) => {
+    const stock = Math.max(0, Math.floor(nextStock));
+    if (demoMode) { persistMessage("المعاينة للعرض فقط — لن يتم حفظ كمية المخزون."); return; }
+    if (!db) { persistMessage("إعداد Firebase غير مكتمل."); return; }
+    try {
+      await setDoc(doc(db, "products", String(product.id)), { stock }, { merge: true });
+      setProducts((current) => current.map((item) => item.id === product.id ? { ...item, stock } : item));
+      persistMessage(`تم تحديث مخزون ${product.name}.`);
+    } catch (error) {
+      console.error(error);
+      persistMessage("تعذر تحديث المخزون. تحقق من صلاحيات Admin.");
+    }
+  };
+
+  const newOrdersCount = orders.filter((order) => (order.status || "جديد") === "جديد").length;
+
   return (
     <div className="min-h-screen bg-[#FFFBF5] p-4" dir="rtl">
       <div className="mx-auto max-w-[1100px]">
@@ -230,6 +250,7 @@ export default function AdminPanel({
 
         <section className="mt-5 rounded-2xl bg-[#1A0A05] p-4 text-white shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="font-black">التقارير وتتبع الطلبات</h2><span className="text-[11px] text-white/60">الأرقام من الطلبات الداخلية المحفوظة</span></div>
+          {newOrdersCount > 0 && <div className="mt-3 rounded-xl border border-[#F2DDAE]/40 bg-[#C9A86A]/20 p-3 text-[12px] font-bold text-[#F2DDAE]">لديك {newOrdersCount} طلبات جديدة تحتاج المتابعة. يتم تحديث القائمة مباشرة من Firestore.</div>}
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
             <div className="rounded-xl bg-white/10 p-3"><div className="text-[11px] text-white/60">كل الطلبات</div><div className="mt-1 text-xl font-black">{orders.length}</div></div>
             <div className="rounded-xl bg-white/10 p-3"><div className="text-[11px] text-white/60">قيد المتابعة</div><div className="mt-1 text-xl font-black">{orders.filter((order) => order.status !== "تم التوصيل").length}</div></div>
@@ -239,7 +260,12 @@ export default function AdminPanel({
           <div className="mt-3 text-[11px] text-white/60">قيمة كل الطلبات المسجلة: {report.allRevenue} د.إ</div>
           {report.topProducts.length > 0 && <div className="mt-4 rounded-xl bg-white/10 p-3"><h3 className="text-[12px] font-bold">الأكثر طلبًا</h3><div className="mt-2 grid gap-1 text-[11px] text-white/75">{report.topProducts.map(([name, quantity]) => <div key={name} className="flex justify-between"><span>{name}</span><span>{quantity} قطعة</span></div>)}</div></div>}
           <SalesCharts orders={orders} />
-          <div className="mt-4 grid gap-2">{orders.slice(0, 12).map((order) => <div key={(order as Order & { firestoreDocId?: string }).firestoreDocId ?? order.id} className="rounded-xl bg-white p-3 text-[#1A0A05]"><div className="flex flex-wrap items-center justify-between gap-2"><div><div className="font-bold">{order.id} • {order.total} د.إ</div><div className="text-[11px] text-[#5E1C1C]/60">{order.userName || "عميل"} {order.customerPhone ? `• ${order.customerPhone}` : ""}</div></div><select value={order.status || "جديد"} onChange={(event) => changeOrderStatus(order, event.target.value)} className="rounded-full border border-[#C9A86A]/40 px-2 py-1 text-[11px] font-bold"><option>جديد</option><option>قيد التحضير</option><option>تم التوصيل</option><option>ملغى</option></select></div><div className="mt-2 text-[11px] text-[#5E1C1C]/65">{order.details || "تفاصيل الطلب غير متاحة"}</div></div>)}</div>
+          <div className="mt-4 grid gap-2">{orders.slice(0, 12).map((order) => <div key={(order as Order & { firestoreDocId?: string }).firestoreDocId ?? order.id} className={`rounded-xl bg-white p-3 text-[#1A0A05] ${order.status === "جديد" ? "ring-2 ring-[#C9A86A]/50" : ""}`}><div className="flex flex-wrap items-center justify-between gap-2"><div><div className="font-bold">{order.id} • {order.total} د.إ {order.status === "جديد" && <span className="mr-2 rounded-full bg-[#C9A86A]/20 px-2 py-1 text-[10px]">جديد</span>}</div><div className="text-[11px] text-[#5E1C1C]/60">{order.userName || "عميل"} {order.customerPhone ? `• ${order.customerPhone}` : ""}</div></div><select value={order.status || "جديد"} onChange={(event) => changeOrderStatus(order, event.target.value)} className="rounded-full border border-[#C9A86A]/40 px-2 py-1 text-[11px] font-bold"><option>جديد</option><option>قيد التحضير</option><option>تم التوصيل</option><option>ملغى</option></select></div><div className="mt-2 text-[11px] text-[#5E1C1C]/65">{order.details || "تفاصيل الطلب غير متاحة"}</div></div>)}</div>
+        </section>
+
+        <section className="mt-5 rounded-2xl bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-black">إدارة المخزون</h2><p className="mt-1 text-[11px] text-[#5E1C1C]/60">حدّث الكمية المتاحة لكل منتج. يظهر تنبيه عند انخفاضها إلى {lowStockThreshold} أو أقل.</p></div><span className="rounded-full bg-[#C9A86A]/15 px-3 py-1 text-[11px] font-bold">{products.filter((product) => getStock(product) <= lowStockThreshold).length} منخفض المخزون</span></div>
+          <div className="mt-4 grid gap-2">{products.map((product) => { const stock = getStock(product); return <div key={`stock-${product.id}`} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-black/5 p-3"><div><div className="font-bold">{product.name}</div><div className={`text-[11px] ${stock <= lowStockThreshold ? "font-bold text-red-700" : "text-[#5E1C1C]/60"}`}>{stock <= lowStockThreshold ? "مخزون منخفض" : "متوفر"}</div></div><div className="flex items-center gap-2"><input aria-label={`كمية مخزون ${product.name}`} type="number" min="0" defaultValue={stock} onBlur={(event) => updateStock(product, Number(event.target.value))} disabled={demoMode} className="w-20 rounded-lg border border-[#C9A86A]/40 p-2 text-center text-sm font-bold disabled:opacity-50" /><span className="text-[11px]">قطعة</span></div></div>; })}</div>
         </section>
 
         <section className="mt-5 rounded-2xl bg-white p-4 shadow-sm">
