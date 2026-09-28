@@ -5,11 +5,10 @@ import { catalogSeed } from "@shared/catalog";
 import { supabase, isSupabaseConfigured } from "./supabase";
 import type { User } from "@supabase/supabase-js";
 import { defaultWhatsappNumber } from "./firebase";
-import { isValidE164PhoneNumber, normalizePhoneNumber } from "./lib/phoneAuth";
 import { getCyclicSlideIndex } from "./lib/familySlider";
 import AdminPanel from "./components/AdminPanel";
 const resolveImage = (image: string) => image.startsWith("/manus-storage/")
-  ? `${import.meta.env.BASE_URL}images/${image.split("/").pop()}`
+  ? `${import.meta.env.BASE_URL}images/${(image.split("/").pop() ?? "").replace(/\.(jpeg|jpg|png)$/i, ".webp")}`
   : image;
 const heroBg = resolveImage("/manus-storage/hero_842b2022.webp");
 const cheesecakeCup = resolveImage("/manus-storage/cheesecake_558e507c.jpeg");
@@ -75,14 +74,10 @@ export default function App() {
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [deliveryNote, setDeliveryNote] = useState("");
-  const [loginPhone, setLoginPhone] = useState("");
-  const [verificationCode, setVerificationCode] = useState("");
   const [phoneLoginMessage, setPhoneLoginMessage] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
-  const [authMethod, setAuthMethod] = useState<"phone" | "email">(() => new URLSearchParams(window.location.search).get("auth") === "email" ? "email" : "phone");
   const [emailMode, setEmailMode] = useState<"login" | "signup">("login");
-  const [phoneConfirmation, setPhoneConfirmation] = useState(false);
   const [tilt, setTilt] = useState({ rx: 2, ry: 0 });
   const [activeFamilySlide, setActiveFamilySlide] = useState(0);
   const [siteContent, setSiteContent] = useState({
@@ -101,11 +96,10 @@ export default function App() {
   });
   const currentFamilyProduct = familyProducts[activeFamilySlide] ?? familyProducts[0];
 
-  // Images are bundled with the storefront so the first screen does not wait
-  // for the legacy Manus storage host. Preload the hero and catalog images as
-  // soon as the app starts, while the browser still paints the login screen.
+  // Preload only the first-screen artwork. Product cards are lazy-loaded below
+  // so opening the store never waits for the complete catalog.
   useEffect(() => {
-    const urls = [heroBg, cheesecakeCup, loginDessertImage, ...fallbackProducts.map((product) => product.image)];
+    const urls = [heroBg, cheesecakeCup, loginDessertImage];
     urls.forEach((url) => { const image = new Image(); image.decoding = "async"; image.src = url; });
   }, []);
 
@@ -137,7 +131,7 @@ export default function App() {
         supabase.from("site_content").select("content").eq("id", "main").maybeSingle(),
       ]);
       if (!active) return;
-      if (productRows?.length) setSupabaseProducts(productRows.map((row: any) => ({ ...row, desc: row.description })) as Product[]);
+      if (productRows?.length) setSupabaseProducts(productRows.map((row: any) => ({ ...row, image: resolveImage(row.image), desc: row.description })) as Product[]);
       if (contentRow?.content) setSiteContent((current) => ({ ...current, ...(contentRow.content as object) }));
     };
     load().catch((error) => console.error("تعذر تحميل بيانات Supabase", error));
@@ -186,21 +180,6 @@ export default function App() {
     });
     return () => { active = false; };
   }, [user?.id, isAdminPreview]);
-
-  const handlePhoneLoginPreparation = async () => {
-    if (!isSupabaseConfigured) { setPhoneLoginMessage("إعداد Supabase غير مكتمل."); return; }
-    if (!isValidE164PhoneNumber(loginPhone)) { setPhoneLoginMessage("أدخل رقم الجوال بصيغته الدولية مثل +971501234567."); return; }
-    const { error } = await supabase.auth.signInWithOtp({ phone: normalizePhoneNumber(loginPhone) });
-    if (error) setPhoneLoginMessage("تسجيل الجوال يحتاج تفعيل Phone وربط Twilio في Supabase.");
-    else { setPhoneConfirmation(true); setPhoneLoginMessage("تم إرسال رمز التحقق."); }
-  };
-
-  const verifyPhoneCode = async () => {
-    if (!phoneConfirmation || verificationCode.length !== 6) { setPhoneLoginMessage("أدخل رمز التحقق المكوّن من 6 أرقام."); return; }
-    const { error } = await supabase.auth.verifyOtp({ phone: normalizePhoneNumber(loginPhone), token: verificationCode, type: "sms" });
-    if (error) setPhoneLoginMessage("رمز التحقق غير صحيح أو انتهت صلاحيته.");
-    else { setPhoneConfirmation(false); setVerificationCode(""); setPhoneLoginMessage(""); }
-  };
 
   const handleEmailAuth = async () => {
     if (!isSupabaseConfigured || !adminEmail.trim() || adminPassword.length < 8) { setPhoneLoginMessage("أدخل البريد وكلمة مرور من 8 أحرف على الأقل."); return; }
@@ -369,7 +348,7 @@ export default function App() {
           </div>
 
           <div className="relative z-10 w-full h-full flex flex-col items-center justify-center px-4">
-            <div className="mb-4 max-w-[400px] px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-500/25 text-amber-100 text-[11px] text-center leading-5">اختر الدخول برقم الجوال أو بالبريد الإلكتروني وكلمة المرور.</div>
+            <div className="mb-4 max-w-[400px] px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-500/25 text-amber-100 text-[11px] text-center leading-5">سجّل الدخول بالبريد الإلكتروني وكلمة المرور للبدء.</div>
 
             <div ref={null} className="w-full max-w-[400px] rounded-[28px] border border-[#C9A86A]/20 bg-white/[0.06] backdrop-blur-[24px] shadow-[0_24px_80px_rgba(0,0,0,0.6),inset_0_1px_0_rgba(255,255,255,0.12)] p-7 sm:p-8" style={{ transform: `perspective(1200px) rotateX(${tilt.rx}deg) rotateY(${tilt.ry}deg)`, transformStyle: "preserve-3d" }}>
               <div className="flex flex-col items-center text-center">
@@ -396,24 +375,12 @@ export default function App() {
                 <p className="mt-2 text-[13px] leading-6 text-white/60">من قلب فلسطين إلى مائدتك<br/>وصفات جداتنا، بطعم الأصالة</p>
 
                 <div className="mt-7 w-full text-right">
-                  <div className="mb-3 grid grid-cols-2 gap-2 rounded-xl bg-black/20 p-1">
-                    <button type="button" onClick={() => setAuthMethod("phone")} className={`rounded-lg py-2 text-[11px] font-bold ${authMethod === "phone" ? "bg-[#C9A86A] text-[#1A0A05]" : "text-white/70"}`}>رقم الجوال</button>
-                    <button type="button" onClick={() => setAuthMethod("email")} className={`rounded-lg py-2 text-[11px] font-bold ${authMethod === "email" ? "bg-[#C9A86A] text-[#1A0A05]" : "text-white/70"}`}>Gmail / البريد</button>
-                  </div>
-                  {authMethod === "phone" ? <div className="space-y-3">
-                    <label htmlFor="login-phone" className="block text-[12px] font-bold text-white/80">رقم الجوال</label>
-                    <input id="login-phone" dir="ltr" autoComplete="tel" inputMode="tel" value={loginPhone} onChange={(event) => { setLoginPhone(event.target.value); setPhoneLoginMessage(""); }} placeholder="+971 50 123 4567" className="w-full h-[48px] rounded-[14px] border border-white/15 bg-white/10 px-4 text-left text-white placeholder:text-white/35 outline-none focus:border-[#C9A86A] focus:ring-2 focus:ring-[#C9A86A]/20" />
-                    <button type="button" onClick={handlePhoneLoginPreparation} className="w-full h-[48px] rounded-[14px] bg-gradient-to-r from-[#C9A86A] to-[#8A6A2E] text-[#1A0A05] font-black text-[14px] shadow-[0_8px_24px_rgba(0,0,0,0.25)] active:scale-[0.98] transition-transform">إرسال رمز SMS</button>
-                    <label htmlFor="verification-code" className="block pt-1 text-[12px] font-bold text-white/80">رمز التحقق</label>
-                    <input id="verification-code" dir="ltr" autoComplete="one-time-code" inputMode="numeric" maxLength={6} value={verificationCode} onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="• • • • • •" disabled={!phoneConfirmation} className="w-full h-[48px] rounded-[14px] border border-white/10 bg-black/20 px-4 text-center tracking-[0.6em] text-white placeholder:text-white/25 disabled:cursor-not-allowed disabled:opacity-60" />
-                    <button type="button" onClick={verifyPhoneCode} disabled={!phoneConfirmation} className="w-full h-[44px] rounded-[12px] border border-[#C9A86A]/60 text-[#F2DDAE] font-bold text-[12px] disabled:opacity-40">تأكيد رمز الجوال</button>
-                  </div> : <div className="space-y-3">
+                  <div className="space-y-3">
                     <input type="email" value={adminEmail} onChange={(event) => setAdminEmail(event.target.value)} placeholder="بريد Gmail أو البريد الإلكتروني" autoComplete="username" className="w-full h-[48px] rounded-[12px] border border-white/15 bg-white/10 px-3 text-left text-white placeholder:text-white/35 outline-none focus:border-[#C9A86A]" />
                     <input type="password" value={adminPassword} onChange={(event) => setAdminPassword(event.target.value)} placeholder="كلمة المرور — 8 أحرف على الأقل" autoComplete={emailMode === "login" ? "current-password" : "new-password"} className="w-full h-[48px] rounded-[12px] border border-white/15 bg-white/10 px-3 text-left text-white placeholder:text-white/35 outline-none focus:border-[#C9A86A]" />
                     <button type="button" onClick={handleEmailAuth} className="w-full h-[48px] rounded-[12px] bg-gradient-to-r from-[#C9A86A] to-[#8A6A2E] text-[#1A0A05] font-black text-[14px]">{emailMode === "login" ? "تسجيل الدخول بالبريد" : "إنشاء حساب بالبريد"}</button>
                     <button type="button" onClick={() => setEmailMode(emailMode === "login" ? "signup" : "login")} className="w-full text-[11px] text-[#F2DDAE]">{emailMode === "login" ? "ليس لديك حساب؟ أنشئ حسابًا" : "لديك حساب؟ سجّل الدخول"}</button>
-                  </div>}
-                  <div id="recaptcha-container" />
+                  </div>
                   {phoneLoginMessage && <p role="status" className="mt-3 rounded-xl border border-[#C9A86A]/20 bg-black/20 p-3 text-[11px] leading-5 text-[#F2DDAE]">{phoneLoginMessage}</p>}
                 </div>
 
@@ -488,7 +455,7 @@ export default function App() {
                 return (
                   <div key={p.id} className="rounded-[18px] overflow-hidden bg-white border border-black/[0.04] shadow-[0_8px_24px_rgba(0,0,0,0.06)] hover:shadow-[0_16px_40px_rgba(0,0,0,0.12)] hover:-translate-y-1 transition-all group">
                     <div className="relative h-[160px] overflow-hidden bg-[#F5EFE6]">
-                      <img src={p.image} alt={p.name} className="w-full h-full object-cover group-hover:scale-[1.05] transition-transform duration-500" />
+                      <img src={p.image} alt={p.name} loading="lazy" decoding="async" fetchPriority="low" className="w-full h-full object-cover group-hover:scale-[1.05] transition-transform duration-500" />
                       <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-[#1A0A05]/80 text-white text-[10px] backdrop-blur">{p.tag}</span>
                     </div>
                     <div className="p-3">
@@ -517,7 +484,7 @@ export default function App() {
                     return (
                       <div key={c.id} className="flex items-center justify-between py-2 border-b border-black/5 last:border-0">
                         <div className="flex items-center gap-2">
-                          <img src={p.image} className="w-10 h-10 rounded-lg object-cover" />
+                          <img src={p.image} alt="" loading="lazy" decoding="async" className="w-10 h-10 rounded-lg object-cover" />
                           <div>
                             <div className="text-[12px] font-bold">{p.name}</div>
                             <div className="text-[11px] text-[#5E1C1C]/50">{p.price} د.إ</div>
