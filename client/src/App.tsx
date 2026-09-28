@@ -41,7 +41,7 @@ const fallbackProducts: Product[] = catalogSeed.map((product, index) => ({
 
 export default function App() {
   const catalogQuery = trpc.catalog.list.useQuery(undefined, { retry: false });
-  const isAdminPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).get("admin") === "preview";
+  const isAdminPreview = (import.meta.env.DEV || window.location.hostname.endsWith("github.io")) && new URLSearchParams(window.location.search).get("admin") === "preview";
   const databaseProducts: Product[] = catalogQuery.data?.map((product) => ({
     id: product.id,
     slug: product.slug,
@@ -630,8 +630,8 @@ export default function App() {
       {/* ADMIN / Orders screen - لوحة إدارة الطلبات */}
       {screen === "admin" && isAdmin && (isFirebaseConfigured || isAdminPreview) && (
         <div className="min-h-screen bg-[#FFFBF5] p-4">
-          {isAdminPreview && <div className="mx-auto mb-3 max-w-[1100px] rounded-xl border border-amber-300 bg-amber-50 p-3 text-center text-[12px] font-bold text-amber-900">وضع معاينة إداري محلي — لا توجد بيانات Firestore حقيقية في هذه المعاينة.</div>}
-          <AdminPanel initialProducts={products} onClose={() => setScreen("main")} onSaved={() => catalogQuery.refetch()} />
+          {isAdminPreview && <div className="mx-auto mb-3 max-w-[1100px] rounded-xl border border-amber-300 bg-amber-50 p-3 text-center text-[12px] font-bold text-amber-900">وضع معاينة Admin للعرض فقط — البيانات تجريبية ولا تُحفظ أي تغييرات.</div>}
+          <AdminPanel initialProducts={products} onClose={() => setScreen("main")} onSaved={() => catalogQuery.refetch()} demoMode={isAdminPreview} />
           <div className="mx-auto max-w-[900px]">
             <div className="flex items-center justify-between">
               <h1 className="text-[20px] font-black">لوحة إدارة الطلبات {orderMethod==="whatsapp" ? "(واتساب)" : "(داخلي)"}</h1>

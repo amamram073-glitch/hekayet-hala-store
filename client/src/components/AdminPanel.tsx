@@ -66,14 +66,22 @@ const defaultContent: Content = {
   privacyPolicy: "نستخدم بيانات التواصل لإتمام الطلب فقط.",
 };
 
+const demoOrders: Order[] = [
+  { id: "DEMO-1001", total: 136, status: "تم التوصيل", userName: "سارة — عميل تجريبي", customerPhone: "+971500000001", date: "2026-09-27T10:00:00Z", details: "تشيز كيك x2 • معمول بالتمر x2", items: [{ name: "تشيز كيك", quantity: 2, unitPrice: 18 }, { name: "معمول بالتمر الفاخر", quantity: 2, unitPrice: 16 }] },
+  { id: "DEMO-1002", total: 100, status: "قيد التحضير", userName: "محمد — عميل تجريبي", customerPhone: "+971500000002", date: "2026-09-28T08:30:00Z", details: "بوكس العائلة x1", items: [{ name: "بوكس العائلة", quantity: 1, unitPrice: 100 }] },
+  { id: "DEMO-1003", total: 51, status: "جديد", userName: "ليان — عميل تجريبي", customerPhone: "+971500000003", date: "2026-09-28T09:15:00Z", details: "الحلبة الفلسطينية x1 • سينابون الفلسطيني x2", items: [{ name: "الحلبة الفلسطينية", quantity: 1, unitPrice: 17 }, { name: "سينابون الفلسطيني", quantity: 2, unitPrice: 19 }] },
+];
+
 export default function AdminPanel({
   initialProducts,
   onClose,
   onSaved,
+  demoMode = false,
 }: {
   initialProducts: Product[];
   onClose: () => void;
   onSaved: () => void;
+  demoMode?: boolean;
 }) {
   const [products, setProducts] = useState<Product[]>(initialProducts);
   const [content, setContent] = useState<Content>(defaultContent);
@@ -83,6 +91,10 @@ export default function AdminPanel({
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
+    if (demoMode) {
+      setOrders(demoOrders);
+      return;
+    }
     if (!db) return;
     const productsQuery = query(collection(db, "products"), orderBy("id", "asc"));
     const unsubscribeProducts = onSnapshot(productsQuery, (snapshot) => {
@@ -97,7 +109,7 @@ export default function AdminPanel({
       setOrders(snapshot.docs.map((item) => ({ ...item.data(), firestoreDocId: item.id } as unknown as Order)));
     });
     return () => { unsubscribeProducts(); unsubscribeContent(); unsubscribeOrders(); };
-  }, []);
+  }, [demoMode]);
 
   const persistMessage = (text: string) => {
     setMessage(text);
@@ -106,6 +118,7 @@ export default function AdminPanel({
 
   const saveProduct = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (demoMode) { persistMessage("المعاينة للعرض فقط — لن يتم حفظ التعديل."); return; }
     if (!db || !editing) return;
     const cleanName = editing.name.trim().slice(0, 120);
     const cleanDescription = editing.desc.trim().slice(0, 1000);
@@ -126,11 +139,13 @@ export default function AdminPanel({
   };
 
   const addProduct = () => {
+    if (demoMode) { persistMessage("المعاينة للعرض فقط — إدارة المنتجات متاحة في حساب Admin الحقيقي."); return; }
     const nextId = Math.max(0, ...products.map((product) => product.id)) + 1;
     setEditing({ id: nextId, slug: `product-${nextId}`, name: "منتج جديد", price: 0, image: "", desc: "", tag: "جديد", collection: "classic" });
   };
 
   const removeProduct = async (product: Product) => {
+    if (demoMode) { persistMessage("المعاينة للعرض فقط — لا يمكن حذف المنتجات."); return; }
     if (!db || !window.confirm(`حذف ${product.name}؟`)) return;
     try {
       await deleteDoc(doc(db, "products", String(product.id)));
@@ -143,6 +158,7 @@ export default function AdminPanel({
   };
 
   const uploadImage = async (file: File) => {
+    if (demoMode) { persistMessage("المعاينة للعرض فقط — لا يمكن رفع الصور."); return; }
     if (!storage || !editing) return;
     if (!/^image\/(jpeg|png|webp|avif)$/.test(file.type) || file.size > 5 * 1024 * 1024) {
       persistMessage("الصورة يجب أن تكون JPG أو PNG أو WEBP وبحجم لا يتجاوز 5MB.");
@@ -164,6 +180,7 @@ export default function AdminPanel({
   };
 
   const saveContent = async () => {
+    if (demoMode) { persistMessage("المعاينة للعرض فقط — لن يتم حفظ المحتوى."); return; }
     if (!db) return;
     try {
       await setDoc(doc(db, "siteContent", "main"), {
@@ -191,6 +208,7 @@ export default function AdminPanel({
   }, [orders]);
 
   const changeOrderStatus = async (order: Order, status: string) => {
+    if (demoMode) { persistMessage("المعاينة للعرض فقط — لن يتم تغيير حالة الطلب."); return; }
     if (!db || !(order as Order & { firestoreDocId?: string }).firestoreDocId) return;
     try {
       await updateDoc(doc(db, "orders", (order as Order & { firestoreDocId: string }).firestoreDocId), { status });
@@ -205,7 +223,7 @@ export default function AdminPanel({
     <div className="min-h-screen bg-[#FFFBF5] p-4" dir="rtl">
       <div className="mx-auto max-w-[1100px]">
         <div className="flex items-center justify-between gap-3">
-          <div><h1 className="text-[22px] font-black">لوحة تحكم حكاية حلا</h1><p className="mt-1 text-[12px] text-[#5E1C1C]/60">التعديلات تُحفظ في Firestore وتظهر لجميع الزوار.</p></div>
+          <div><h1 className="text-[22px] font-black">لوحة تحكم حكاية حلا</h1><p className="mt-1 text-[12px] text-[#5E1C1C]/60">{demoMode ? "معاينة للعرض فقط — البيانات تجريبية." : "التعديلات تُحفظ في Firestore وتظهر لجميع الزوار."}</p></div>
           <button onClick={onClose} className="rounded-full bg-[#1A0A05] px-4 py-2 text-[12px] font-bold text-white">العودة للمتجر</button>
         </div>
         {message && <div role="status" className="mt-4 rounded-xl border border-[#C9A86A]/30 bg-[#C9A86A]/10 p-3 text-[12px] font-bold">{message}</div>}
@@ -225,7 +243,7 @@ export default function AdminPanel({
         </section>
 
         <section className="mt-5 rounded-2xl bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between"><h2 className="font-black">المنتجات</h2><button onClick={addProduct} className="rounded-full bg-[#1A0A05] px-4 py-2 text-[12px] font-bold text-white">+ إضافة منتج</button></div>
+          <div className="flex items-center justify-between"><h2 className="font-black">المنتجات</h2><button disabled={demoMode} onClick={addProduct} className="rounded-full bg-[#1A0A05] px-4 py-2 text-[12px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">+ إضافة منتج</button></div>
           <div className="mt-3 grid gap-2">{products.map((product) => <div key={product.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-black/5 p-3"><div className="flex items-center gap-3"><img src={product.image} alt="" className="h-12 w-12 rounded-lg object-cover" /><div><div className="font-bold">{product.name}</div><div className="text-[11px] text-[#C9A86A]">{product.price} د.إ • {product.tag}</div></div></div><div className="flex gap-2"><button onClick={() => setEditing(product)} className="rounded-full border border-[#C9A86A]/40 px-3 py-1 text-[11px] font-bold">تعديل</button><button onClick={() => removeProduct(product)} className="rounded-full border border-red-200 px-3 py-1 text-[11px] font-bold text-red-700">حذف</button></div></div>)}</div>
         </section>
 
