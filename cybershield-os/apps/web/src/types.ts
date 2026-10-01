@@ -1,0 +1,7 @@
+export type User = { id: string; email: string; full_name: string };
+export type Session = { user: User; organization: { id: string; name: string }; role: string };
+export type Asset = { id: string; name: string; type: string; hostname: string; environment: string; owner?: string; status: string; authorization_status: string; authorized_at?: string; last_checked_at?: string };
+export type Finding = { id: string; asset_id: string; asset_name: string; title: string; description: string; severity: string; category: string; evidence: Record<string, unknown>; remediation: string; status: string; cve?: string; first_detected_at: string };
+export type DashboardData = { security_score: number; risk_level: string; critical_findings: number; high_findings: number; medium_findings: number; low_findings: number; assets: number; vulnerable_assets: number; open_incidents: number; open_risks: number; score_history: { score: number; date: string }[]; severity_distribution: Record<string, number>; findings_by_category: { category: string; count: number }[]; asset_exposure: { name: string; authorized: boolean; findings: number }[] };
+export type Risk = { id: string; title: string; description: string; likelihood: number; impact: number; risk_score: number; owner?: string; treatment: string; status: string; deadline?: string };
+export type Incident = { id: string; title: string; description: string; severity: string; status: string; assigned_to?: string; detected_at: string; notes: { note: string; author: string; at: string }[] };
