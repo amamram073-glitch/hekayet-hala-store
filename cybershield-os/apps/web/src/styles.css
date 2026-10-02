@@ -8,3 +8,14 @@
 .team-invite-form{display:flex;align-items:center;gap:9px;padding:13px;background:#10212b;border:1px solid #283f4b;border-radius:10px;margin-bottom:12px}.team-invite-form label{display:flex;align-items:center;gap:8px;flex:1;color:#7acfb7}.team-invite-form input{flex:1;min-width:0;background:#0b1922;border:1px solid #293f4a;border-radius:7px;padding:9px;color:#dbe7ea;outline:0;font-size:10px}.team-invite-form select,.member-row select{background:#0d1a23;color:#dce6ea;border:1px solid #2b414d;border-radius:7px;padding:8px;font-size:9px}.invite-link{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#12342e;border:1px solid #2d6958;border-radius:8px;padding:10px 13px;margin-bottom:12px;color:#8edcc9;font:10px Manrope,sans-serif;overflow-wrap:anywhere}.member-row{display:flex;align-items:center;gap:10px;border-top:1px solid #263b45;padding:10px 2px}.member-identity{flex:1;min-width:0}.member-identity b,.member-identity small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.member-identity b{font-size:10px}.member-identity small{font-size:9px;color:#7c919a;margin-top:3px}.member-row select{width:155px}.member-row .icon-button{flex:none}@media(max-width:620px){.team-invite-form{flex-wrap:wrap}.team-invite-form label{flex:1 1 100%}.team-invite-form select{flex:1}.member-row{flex-wrap:wrap}.member-identity{flex:1}.member-row select{width:140px}.invite-link{align-items:flex-start;flex-direction:column}}
 
 .password-form{display:grid;gap:8px;margin-top:16px;padding-top:13px;border-top:1px solid #293d47}.password-form h4{margin:0 0 2px;font-size:10px;color:#c1d1d5}.password-form input{width:100%;box-sizing:border-box;background:#0b1922;border:1px solid #293f4a;border-radius:7px;padding:9px;color:#dbe7ea;outline:0;font-size:10px}.password-form .secondary-btn{justify-content:center}.success-note{margin-top:10px;color:#77d0b4;font-size:10px}
+
+/* Sidebar controls work on desktop and mobile, including a persistent reopen control. */
+.mobile-menu{display:flex;flex-direction:column;justify-content:center;gap:4px;min-width:30px;min-height:30px;background:transparent;border:0;padding:5px;cursor:pointer}
+.mobile-menu span{width:17px;height:1px;background:#aab8bf}
+.sidebar:not(.open){transform:translateX(110%);transition:transform .25s ease}
+.is-en .sidebar:not(.open){transform:translateX(-110%)}
+.sidebar.open{transform:translateX(0)}
+.app-shell.sidebar-closed .main-shell,.app-shell.sidebar-closed.is-en .main-shell{margin-inline-start:0}
+.mobile-close{cursor:pointer}
+
+@media(max-width:900px){.sidebar:not(.open),.is-en .sidebar:not(.open){transform:translateX(-110%)}}
