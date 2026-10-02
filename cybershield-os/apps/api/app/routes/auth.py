@@ -46,6 +46,8 @@ def _start_session(response: Response, request: Request, db: Session, user: User
 
 @router.post("/register", status_code=201)
 def register(data: RegisterInput, request: Request, response: Response, db: Session = Depends(get_db)):
+    if settings.environment == "production" and not settings.allow_public_registration:
+        raise HTTPException(status_code=403, detail="Public registration is disabled; request an organization invitation")
     _throttle(request)
     email = data.email.lower()
     if db.scalar(select(User).where(User.email == email)):

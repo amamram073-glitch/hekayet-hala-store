@@ -10,7 +10,7 @@ export default defineConfig({
     port: 5173,
     allowedHosts,
     proxy: Object.fromEntries(['/api', '/docs', '/redoc', '/openapi.json'].map((path) => [
-      path, { target: 'http://127.0.0.1:8000', changeOrigin: true },
+      path, { target: 'http://127.0.0.1:8000', changeOrigin: true, ws: true },
     ])),
   },
 });

@@ -10,10 +10,13 @@ class Settings(BaseSettings):
     app_url: str = "http://localhost:5173"
     environment: str = "development"
     cookie_secure: bool = False
+    allow_public_registration: bool = True
     ai_api_key: str | None = None
     ai_api_base: str = "https://api.openai.com/v1"
     ai_model: str = "gpt-4o-mini"
+    webhook_encryption_key: str | None = None
     report_dir: str = "/tmp/cybershield-reports"
+    evidence_storage_path: str = "/var/lib/cybershield/evidence"
     scan_timeout_seconds: int = 4
 
 

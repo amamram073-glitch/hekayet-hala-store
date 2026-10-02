@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.db import get_db
@@ -29,6 +29,13 @@ def create_incident(data: IncidentCreate, request: Request, principal: Principal
     db.add(SecurityEvent(organization_id=principal.organization_id, event_type="INCIDENT_CREATED",
                          severity=data.severity, message=data.title, metadata_json={"incident_id": str(incident.id)}))
     audit(db, principal, request, "INCIDENT_CREATED", "incident", str(incident.id))
+    from app.services.webhooks import create_delivery_rows
+    create_delivery_rows(db, principal.organization_id, "INCIDENT_CREATED", {
+        "type": "INCIDENT_CREATED", "organization_id": str(principal.organization_id),
+        "incident_id": str(incident.id), "title": incident.title,
+        "severity": incident.severity, "status": incident.status,
+        "occurred_at": incident.detected_at,
+    })
     persist_if_changed(db, principal.organization_id)
     db.commit()
     return {"id": str(incident.id), "title": incident.title, "status": incident.status}
@@ -65,17 +72,40 @@ def add_incident_note(incident_id: str, payload: dict, request: Request,
 
 
 @router.get("/events")
-def list_events(principal: Principal = Depends(get_principal), db: Session = Depends(get_db)):
-    rows = db.scalars(select(SecurityEvent).where(SecurityEvent.organization_id == principal.organization_id)
-                      .order_by(SecurityEvent.created_at.desc()).limit(300)).all()
+def list_events(limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0, le=10000),
+                severity: str | None = Query(None, pattern="^(INFO|LOW|MEDIUM|HIGH|CRITICAL)$"),
+                source_type: str | None = Query(None, pattern="^(APPLICATION|WEB_SERVER|AUTHENTICATION|ENDPOINT|CLOUD|FIREWALL|DNS|API)$"),
+                q: str | None = Query(None, min_length=1, max_length=100),
+                since: datetime | None = None, until: datetime | None = None,
+                principal: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+    query = select(SecurityEvent).where(SecurityEvent.organization_id == principal.organization_id)
+    if severity: query = query.where(SecurityEvent.severity == severity)
+    if source_type: query = query.where(SecurityEvent.source_type == source_type)
+    if q:
+        from sqlalchemy import or_
+        pattern = f"%{q}%"
+        query = query.where(or_(SecurityEvent.event_type.ilike(pattern), SecurityEvent.source.ilike(pattern),
+            SecurityEvent.username.ilike(pattern), SecurityEvent.hostname.ilike(pattern), SecurityEvent.message.ilike(pattern)))
+    if since: query = query.where(SecurityEvent.event_timestamp >= since)
+    if until: query = query.where(SecurityEvent.event_timestamp <= until)
+    rows = db.scalars(query.order_by(SecurityEvent.event_timestamp.desc()).offset(offset).limit(limit)).all()
     return [{"id": str(x.id), "event_type": x.event_type, "severity": x.severity, "source": x.source,
-             "message": x.message, "metadata": x.metadata_json, "created_at": x.created_at} for x in rows]
+             "message": x.message, "metadata": x.metadata_json, "processing_status": x.processing_status,
+             "hostname": x.hostname, "username": x.username, "asset_id": str(x.asset_id) if x.asset_id else None,
+             "event_timestamp": x.event_timestamp, "created_at": x.created_at} for x in rows]
 
 
 @router.get("/audit-logs")
-def list_audit_logs(principal: Principal = Depends(manager), db: Session = Depends(get_db)):
-    rows = db.scalars(select(AuditLog).where(AuditLog.organization_id == principal.organization_id)
-                      .order_by(AuditLog.created_at.desc()).limit(500)).all()
+def list_audit_logs(limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0, le=10000),
+                    action: str | None = Query(None, min_length=1, max_length=64),
+                    request_id: str | None = Query(None, min_length=1, max_length=64),
+                    principal: Principal = Depends(manager), db: Session = Depends(get_db)):
+    query = select(AuditLog).where(AuditLog.organization_id == principal.organization_id)
+    if action: query = query.where(AuditLog.action == action)
+    if request_id: query = query.where(AuditLog.request_id == request_id)
+    rows = db.scalars(query.order_by(AuditLog.created_at.desc()).offset(offset).limit(limit)).all()
     return [{"id": str(x.id), "actor_id": str(x.actor_id) if x.actor_id else None,
              "action": x.action, "resource": x.resource, "resource_id": x.resource_id,
-             "ip_address": x.ip_address, "metadata": x.metadata_json, "created_at": x.created_at} for x in rows]
+             "ip_address": x.ip_address, "user_agent": x.user_agent, "request_id": x.request_id,
+             "before_state": x.before_state, "after_state": x.after_state,
+             "metadata": x.metadata_json, "created_at": x.created_at} for x in rows]

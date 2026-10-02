@@ -62,6 +62,8 @@ def get_principal(request: Request, db: Session = Depends(get_db)) -> Principal:
         raise HTTPException(status_code=401, detail="Session has expired or was revoked")
     if not user or not user.active or not membership or session.user_id != user_id or session.organization_id != org_id:
         raise HTTPException(status_code=403, detail="Organization access is not permitted")
+    request.state.user_id = str(user_id)
+    request.state.organization_id = str(org_id)
     return Principal(user=user, organization_id=org_id, role=membership.role, session=session)
 
 

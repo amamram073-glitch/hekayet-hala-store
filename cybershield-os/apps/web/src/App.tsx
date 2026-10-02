@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { Activity, Bell, Bot, ChevronDown, ClipboardList, FileText, Globe2, LayoutDashboard, LogOut, Search, Shield, ShieldAlert, Siren, Target, Users, X } from 'lucide-react';
+import { Activity, Bell, Bot, BriefcaseBusiness, CheckCheck, ChevronDown, ClipboardList, FileText, Globe2, KeyRound, LayoutDashboard, ListChecks, LogOut, Radar, Search, Shield, ShieldAlert, Siren, Target, Users, X } from 'lucide-react';
 import { api, post } from './api';
 import type { Session } from './types';
 import AuthPage from './AuthPage';
@@ -15,9 +15,27 @@ const AnalystPage = lazy(() => import('./AnalystPage'));
 const SettingsPage = lazy(() => import('./SettingsPage'));
 const TeamPage = lazy(() => import('./TeamPage'));
 const JoinPage = lazy(() => import('./JoinPage'));
+const { SocCenterPage, AlertsPage, InvestigationsPage, CasesPage, ThreatIntelPage, PlaybooksPage, IntegrationsPage, ApprovalsPage } = {
+  SocCenterPage: lazy(() => import('./SocPages').then(m => ({ default: m.SocCenterPage }))),
+  AlertsPage: lazy(() => import('./SocPages').then(m => ({ default: m.AlertsPage }))),
+  InvestigationsPage: lazy(() => import('./SocPages').then(m => ({ default: m.InvestigationsPage }))),
+  CasesPage: lazy(() => import('./SocPages').then(m => ({ default: m.CasesPage }))),
+  ThreatIntelPage: lazy(() => import('./SocPages').then(m => ({ default: m.ThreatIntelPage }))),
+  PlaybooksPage: lazy(() => import('./SocPages').then(m => ({ default: m.PlaybooksPage }))),
+  IntegrationsPage: lazy(() => import('./SocPages').then(m => ({ default: m.IntegrationsPage }))),
+  ApprovalsPage: lazy(() => import('./SocPages').then(m => ({ default: m.ApprovalsPage }))),
+};
 
-type Page = 'dashboard'|'assets'|'findings'|'risks'|'incidents'|'events'|'reports'|'analyst'|'audit'|'settings'|'team';
+type Page = 'dashboard'|'soc'|'alerts'|'investigations'|'cases'|'threat-intel'|'playbooks'|'integrations'|'approvals'|'assets'|'findings'|'risks'|'incidents'|'events'|'reports'|'analyst'|'audit'|'settings'|'team';
 const navGroups = [
+  { title: { ar: 'مركز العمليات الأمنية', en: 'SECURITY OPERATIONS' }, items: [
+    { id: 'soc', ar: 'مركز SOC', en: 'SOC Center', icon: Radar },
+    { id: 'alerts', ar: 'التنبيهات', en: 'Alerts', icon: Bell },
+    { id: 'investigations', ar: 'التحقيقات', en: 'Investigations', icon: Search },
+    { id: 'cases', ar: 'إدارة القضايا', en: 'Case management', icon: BriefcaseBusiness },
+    { id: 'threat-intel', ar: 'استخبارات التهديدات', en: 'Threat intelligence', icon: Globe2 },
+    { id: 'playbooks', ar: 'أدلة الاستجابة', en: 'Playbooks', icon: ListChecks },
+  ] },
   { title: { ar: 'مركز المتابعة', en: 'MONITOR' }, items: [
     { id: 'dashboard', ar: 'نظرة عامة', en: 'Overview', icon: LayoutDashboard },
     { id: 'assets', ar: 'الأصول والفحوص', en: 'Assets & scans', icon: Globe2 },
@@ -29,8 +47,10 @@ const navGroups = [
     { id: 'events', ar: 'الأحداث الأمنية', en: 'Security events', icon: Activity },
     { id: 'reports', ar: 'التقارير', en: 'Reports', icon: FileText },
     { id: 'analyst', ar: 'المحلل الأمني', en: 'AI Analyst', icon: Bot },
+    { id: 'approvals', ar: 'طلبات الموافقة', en: 'Approvals', icon: CheckCheck },
   ] },
   { title: { ar: 'الإدارة', en: 'ADMIN' }, items: [
+    { id: 'integrations', ar: 'التكاملات ومفاتيح API', en: 'Integrations & API keys', icon: KeyRound },
     { id: 'audit', ar: 'سجل التدقيق', en: 'Audit log', icon: ClipboardList },
     { id: 'team', ar: 'فريق المؤسسة', en: 'Organization team', icon: Users },
     { id: 'settings', ar: 'الجلسات والإعدادات', en: 'Sessions & settings', icon: Users },
@@ -46,6 +66,8 @@ export default function App() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<any>(null);
   const [error, setError] = useState('');
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   useEffect(() => { api<Session>('/auth/me').then(setSession).catch(() => setSession(null)).finally(() => setLoading(false)); }, []);
   useEffect(() => { document.documentElement.lang = en ? 'en' : 'ar'; document.documentElement.dir = en ? 'ltr' : 'rtl'; }, [en]);
@@ -54,6 +76,32 @@ export default function App() {
     const timer = window.setTimeout(() => api(`/search?q=${encodeURIComponent(query.trim())}`).then(setResults).catch(e => setError(e.message)), 280);
     return () => window.clearTimeout(timer);
   }, [query]);
+  useEffect(() => {
+    if (!session) return;
+    const refresh = () => api<any[]>('/notifications?limit=30').then(setNotifications).catch(() => {});
+    void refresh();
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const socket = new WebSocket(`${protocol}//${location.host}/api/ws/events`);
+    socket.onmessage = event => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'notification' && data.recipient_id === session.user.id) void refresh();
+      } catch { /* ignore malformed transient message */ }
+    };
+    return () => socket.close();
+  }, [session?.user.id]);
+
+  async function markNotificationRead(item: any) {
+    if (!item.read_at) {
+      try {
+        await post(`/notifications/${item.id}/read`);
+        setNotifications(items => items.map(row => row.id === item.id ? { ...row, read_at: new Date().toISOString() } : row));
+      } catch (e) { setError(e instanceof Error ? e.message : 'Could not mark notification read'); }
+    }
+    const target: Record<string, Page> = { alert: 'alerts', investigation: 'investigations', case: 'cases', incident: 'incidents', task: 'investigations' };
+    if (item.resource_type && target[item.resource_type]) setPage(target[item.resource_type]);
+    setNotificationsOpen(false);
+  }
 
   async function authenticated() {
     setLoading(true);
@@ -74,11 +122,19 @@ export default function App() {
 
   const admin = ['ORGANIZATION_OWNER', 'SECURITY_ADMIN', 'IT_ADMIN'].includes(session.role);
   const pageLabels: Record<Page,string> = en
-    ? { dashboard:'Overview',assets:'Assets & scans',findings:'Findings',risks:'Risk center',incidents:'Incidents',events:'Security events',reports:'Reports',analyst:'AI Analyst',audit:'Audit log',settings:'Sessions & settings',team:'Organization team' }
-    : { dashboard:'نظرة عامة',assets:'الأصول والفحوص',findings:'النتائج والثغرات',risks:'مركز المخاطر',incidents:'الحوادث',events:'الأحداث الأمنية',reports:'التقارير',analyst:'المحلل الأمني',audit:'سجل التدقيق',settings:'الجلسات والإعدادات',team:'فريق المؤسسة' };
+    ? { dashboard:'Overview',soc:'SOC Center',alerts:'Alerts',investigations:'Investigations',cases:'Case management','threat-intel':'Threat intelligence',playbooks:'Playbooks',integrations:'Integrations & API keys',approvals:'Approvals',assets:'Assets & scans',findings:'Findings',risks:'Risk center',incidents:'Incidents',events:'Security events',reports:'Reports',analyst:'AI Analyst',audit:'Audit log',settings:'Sessions & settings',team:'Organization team' }
+    : { dashboard:'نظرة عامة',soc:'مركز العمليات الأمنية',alerts:'التنبيهات',investigations:'التحقيقات',cases:'إدارة القضايا','threat-intel':'استخبارات التهديدات',playbooks:'أدلة الاستجابة',integrations:'التكاملات ومفاتيح API',approvals:'طلبات الموافقة',assets:'الأصول والفحوص',findings:'النتائج والثغرات',risks:'مركز المخاطر',incidents:'الحوادث',events:'الأحداث الأمنية',reports:'التقارير',analyst:'المحلل الأمني',audit:'سجل التدقيق',settings:'الجلسات والإعدادات',team:'فريق المؤسسة' };
   const roleName: Record<string,string> = { ORGANIZATION_OWNER:en?'Owner':'مالك المؤسسة', SECURITY_ADMIN:en?'Security admin':'مسؤول أمن', SECURITY_ANALYST:en?'Analyst':'محلل أمن', IT_ADMIN:en?'IT admin':'مسؤول تقنية', EMPLOYEE:en?'Employee':'موظف', VIEWER:en?'Viewer':'مشاهد' };
   let content = null;
   switch (page) {
+    case 'soc': content=<SocCenterPage en={en}/>; break;
+    case 'alerts': content=<AlertsPage en={en}/>; break;
+    case 'investigations': content=<InvestigationsPage en={en}/>; break;
+    case 'cases': content=<CasesPage en={en}/>; break;
+    case 'threat-intel': content=<ThreatIntelPage en={en} canManage={admin}/>; break;
+    case 'playbooks': content=<PlaybooksPage en={en} canManage={admin}/>; break;
+    case 'integrations': content=<IntegrationsPage en={en}/>; break;
+    case 'approvals': content=<ApprovalsPage en={en} canManage={admin}/>; break;
     case 'dashboard': content=<DashboardPage en={en}/>; break;
     case 'assets': content=<AssetsPage en={en}/>; break;
     case 'findings': content=<FindingsPage en={en}/>; break;
@@ -96,11 +152,11 @@ export default function App() {
     <aside className={`sidebar ${mobileNav?'open':''}`}>
       <div className="sidebar-brand"><span className="brand-mark"><Shield size={20}/></span><div><b>CyberShield <em>OS</em></b><small>SECURITY OPERATIONS</small></div><button className="mobile-close" onClick={()=>setMobileNav(false)}><X size={18}/></button></div>
       <div className="org-switch"><span className="org-symbol">{session.organization?.name?.slice(0,1)||'C'}</span><div><b>{session.organization?.name||'Organization'}</b><small>{en?'Workspace':'مساحة عمل'}</small></div><ChevronDown size={14}/></div>
-      <nav className="side-nav">{navGroups.map(group=><div className="nav-group" key={group.title.en}><span className="nav-group-title">{en?group.title.en:group.title.ar}</span>{group.items.filter(item=>admin||!['audit','team'].includes(item.id)).map(item=>{const id=item.id as Page;const Icon=item.icon;return <button key={item.id} className={`nav-link ${page===id?'active':''}`} onClick={()=>{setPage(id);setMobileNav(false);setResults(null)}}><Icon size={17}/><span>{en?item.en:item.ar}</span>{id==='findings'&&<i className="nav-dot"/>}</button>})}</div>)}</nav>
+      <nav className="side-nav">{navGroups.map(group=><div className="nav-group" key={group.title.en}><span className="nav-group-title">{en?group.title.en:group.title.ar}</span>{group.items.filter(item=>admin||!['audit','team','integrations'].includes(item.id)).map(item=>{const id=item.id as Page;const Icon=item.icon;return <button key={item.id} className={`nav-link ${page===id?'active':''}`} onClick={()=>{setPage(id);setMobileNav(false);setResults(null)}}><Icon size={17}/><span>{en?item.en:item.ar}</span>{id==='findings'&&<i className="nav-dot"/>}</button>})}</div>)}</nav>
       <div className="sidebar-bottom"><div className="sidebar-safe"><span><Shield size={15}/></span><div><b>{en?'Scoped by authorization':'مقيد بالتفويض'}</b><small>{en?'No unapproved scans':'لا فحص دون موافقة'}</small></div></div><div className="profile-row"><span className="avatar">{session.user.full_name.slice(0,1)}</span><div><b>{session.user.full_name}</b><small>{roleName[session.role]||session.role}</small></div><button className="logout-btn" title={en?'Sign out':'تسجيل الخروج'} onClick={logout}><LogOut size={15}/></button></div></div>
     </aside>
     <main className="main-shell">
-      <header className="topbar"><button className="mobile-menu" onClick={()=>setMobileNav(true)}><span/><span/><span/></button><div className="breadcrumb"><span>{en?'Workspace':'مساحة العمل'}</span><b>/</b><strong>{pageLabels[page]}</strong></div><div className="topbar-actions"><div className="global-search"><Search size={16}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder={en?'Search assets, findings, incidents…':'ابحث في الأصول والنتائج والحوادث…'}/>{query&&<button onClick={()=>{setQuery('');setResults(null)}}><X size={14}/></button>}{results&&<div className="search-results"><b>{en?'Search results':'نتائج البحث'}</b>{Object.entries(results).flatMap(([kind,list]:[string,any])=>list.map((x:any)=><button key={x.id} onClick={()=>{setPage(kind==='assets'?'assets':kind==='findings'?'findings':kind==='incidents'?'incidents':'reports');setResults(null);setQuery('')}}><small>{kind}</small><span>{x.name||x.title||x.hostname}</span></button>))}{Object.values(results).every((v:any)=>!v.length)&&<small>{en?'No matches':'لا توجد نتائج'}</small>}</div>}</div><button className="icon-button notification-button" title={en?'Notifications':'الإشعارات'}><Bell size={17}/><i/></button><button className="language-toggle" onClick={()=>setEn(!en)}><Globe2 size={15}/>{en?'AR':'EN'}</button></div></header>
+      <header className="topbar"><button className="mobile-menu" onClick={()=>setMobileNav(true)}><span/><span/><span/></button><div className="breadcrumb"><span>{en?'Workspace':'مساحة العمل'}</span><b>/</b><strong>{pageLabels[page]}</strong></div><div className="topbar-actions"><div className="global-search"><Search size={16}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder={en?'Search assets, findings, incidents…':'ابحث في الأصول والنتائج والحوادث…'}/>{query&&<button onClick={()=>{setQuery('');setResults(null)}}><X size={14}/></button>}{results&&<div className="search-results"><b>{en?'Search results':'نتائج البحث'}</b>{Object.entries(results).flatMap(([kind,list]:[string,any])=>list.map((x:any)=><button key={x.id} onClick={()=>{setPage(kind==='assets'?'assets':kind==='findings'?'findings':kind==='incidents'?'incidents':kind==='alerts'?'alerts':kind==='cases'?'cases':kind==='investigations'?'investigations':kind==='indicators'?'threat-intel':'reports');setResults(null);setQuery('')}}><small>{kind}</small><span>{x.name||x.title||x.hostname||x.value}</span></button>))}{Object.values(results).every((v:any)=>!v.length)&&<small>{en?'No matches':'لا توجد نتائج'}</small>}</div>}</div><div className="notification-wrap"><button className="icon-button notification-button" title={en?'Notifications':'الإشعارات'} onClick={()=>setNotificationsOpen(!notificationsOpen)}><Bell size={17}/>{notifications.some(x=>!x.read_at)&&<i/>}</button>{notificationsOpen&&<div className="notification-popover"><div className="notification-head"><b>{en?'Notifications':'الإشعارات'}</b><button onClick={()=>api<any[]>('/notifications?limit=30').then(setNotifications).catch(()=>{})}><Activity size={14}/></button></div>{notifications.map(item=><button className={`notification-row ${item.read_at?'read':''}`} key={item.id} onClick={()=>void markNotificationRead(item)}><b>{item.title}</b><span>{item.message}</span><small>{new Date(item.created_at).toLocaleString(en?'en-US':'ar')}</small></button>)}{!notifications.length&&<div className="notification-empty">{en?'No notifications':'لا توجد إشعارات'}</div>}</div>}</div><button className="language-toggle" onClick={()=>setEn(!en)}><Globe2 size={15}/>{en?'AR':'EN'}</button></div></header>
       {error&&<button className="toast-error" onClick={()=>setError('')}>{error}<X size={15}/></button>}
       <Suspense fallback={<div className="loading">{en?'Loading module…':'جارٍ تحميل الوحدة…'}</div>}>{content}</Suspense>
     </main>
